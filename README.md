@@ -1,0 +1,2 @@
+# swmcp
+SolidWorks MCP integration
