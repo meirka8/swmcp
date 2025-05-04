@@ -1,0 +1,19 @@
+[workspace]
+authors = ["meirka8 <67155085+meirka8@users.noreply.github.com>"]
+channels = ["conda-forge"]
+name = "swmcp"
+platforms = ["win-64"]
+version = "0.1.0"
+
+[dependencies]
+python = "3.12.*"
+
+[feature.rnd.dependencies]
+ipykernel = "*"
+jupyterlab = "*"
+
+[feature.rnd.tasks]
+jupyterlab = "jupyter lab --port 8889"
+
+[environments]
+rnd = { features = ["rnd"] }
