@@ -17,12 +17,14 @@ namespace swmcp.server.Controllers
         {
             try
             {
-                Guid sldWorksGuid = new Guid("83A33D31-27C5-4CE8-8BA5-C3651875D74C");
+                Guid sldWorksGuid = new Guid("6af263bb-eb9f-4176-89e9-4f892eb0ca3d");
                 GetActiveObject(ref sldWorksGuid, IntPtr.Zero, out object sldWorksObject);
                 _sldWorks = (ISldWorks)sldWorksObject;
             }
-            catch (Exception)
+            catch (COMException comEx)
             {
+                // print COM exception message
+                Console.WriteLine($"COM Exception: {comEx.Message}");
                 // Handle case where SolidWorks is not running
                 _sldWorks = null;
             }
