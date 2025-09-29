@@ -17,7 +17,7 @@ namespace swmcp.server.Controllers
         {
             try
             {
-                Guid sldWorksGuid = new Guid("6af263bb-eb9f-4176-89e9-4f892eb0ca3d");
+                Guid sldWorksGuid = Type.GetTypeFromProgID("SldWorks.Application").GUID;
                 GetActiveObject(ref sldWorksGuid, IntPtr.Zero, out object sldWorksObject);
                 _sldWorks = (ISldWorks)sldWorksObject;
             }
