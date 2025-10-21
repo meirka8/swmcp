@@ -87,10 +87,24 @@ namespace swmcp.server.Controllers
             foreach (var featureObject in features)
             {
                 var feature = (Feature)featureObject;
+                var featureTypeName = feature.GetTypeName2();
+                object? featureData = null;
+
+                if (featureTypeName == "Extrusion")
+                {
+                    var extrudeData = (ExtrudeFeatureData2)feature.GetDefinition();
+                    featureData = new
+                    {
+                        Depth = extrudeData.GetDepth(false),
+                        ReverseDepth = extrudeData.GetDepth(true)
+                    };
+                }
+
                 featureList.Add(new
                 {
                     Name = feature.Name,
-                    TypeName = feature.GetTypeName2()
+                    TypeName = featureTypeName,
+                    Data = featureData
                 });
             }
 
