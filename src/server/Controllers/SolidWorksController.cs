@@ -1,5 +1,6 @@
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
+using swmcp.server.Models;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -73,11 +74,11 @@ namespace swmcp.server.Controllers
             return massProps.Mass;
         }
 
-        private object GetFeatures(ModelDoc2 doc)
+        private List<swmcp.server.Models.Feature> GetFeatures(ModelDoc2 doc)
         {
             var featureManager = doc.FeatureManager;
             var features = (object[]?)featureManager.GetFeatures(false);
-            var featureList = new List<object>();
+            var featureList = new List<swmcp.server.Models.Feature>();
 
             if (features == null)
             {
@@ -86,26 +87,21 @@ namespace swmcp.server.Controllers
 
             foreach (var featureObject in features)
             {
-                var feature = (Feature)featureObject;
-                var featureTypeName = feature.GetTypeName2();
-                object? featureData = null;
+                var swFeature = (SolidWorks.Interop.sldworks.Feature)featureObject;
+                var featureTypeName = swFeature.GetTypeName2();
+                var feature = new swmcp.server.Models.Feature(swFeature.Name, featureTypeName);
 
                 if (featureTypeName == "Extrusion")
                 {
-                    var extrudeData = (ExtrudeFeatureData2)feature.GetDefinition();
-                    featureData = new
+                    var extrudeData = (ExtrudeFeatureData2)swFeature.GetDefinition();
+                    feature.Data = new ExtrusionData
                     {
                         Depth = extrudeData.GetDepth(false),
                         ReverseDepth = extrudeData.GetDepth(true)
                     };
                 }
 
-                featureList.Add(new
-                {
-                    Name = feature.Name,
-                    TypeName = featureTypeName,
-                    Data = featureData
-                });
+                featureList.Add(feature);
             }
 
             return featureList;
