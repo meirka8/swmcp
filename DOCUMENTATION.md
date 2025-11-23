@@ -71,6 +71,6 @@ The project is built using C# and .NET 8.0.
 
 - **`src/server/Program.cs`**: Entry point, configures the MCP server and dependency injection.
 - **`src/server/Controllers/SolidWorksController.cs`**: Handles direct interaction with the SolidWorks COM API. It uses `SchemaManager` to determine which properties to fetch dynamically.
-- **`src/server/Services/SchemaManager.cs`**: Manages the `known_features.json` database, allowing the server to "learn" new feature schemas.
+- **`src/server/Services/SchemaManager.cs`**: Manages the `known_features.json` database. Stores user data in `%LOCALAPPDATA%\swmcp\known_features.json`.
 - **`src/server/Utilities/ComReflectionHelper.cs`**: Uses .NET Reflection to dynamically invoke properties on SolidWorks COM objects.
 - **`src/server/Tools/SolidWorksTool.cs`**: Defines the MCP tools exposed to the client.

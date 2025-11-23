@@ -12,8 +12,28 @@ namespace swmcp.server.Services
 
         public SchemaManager()
         {
-            // Save in the same directory as the executable for simplicity, or a specific data folder
-            _filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "known_features.json");
+            // Use LocalApplicationData for persistence
+            var appDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "swmcp");
+            Directory.CreateDirectory(appDataPath);
+            _filePath = Path.Combine(appDataPath, "known_features.json");
+
+            // Check if we need to seed from the app directory
+            if (!File.Exists(_filePath))
+            {
+                var seedPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "known_features.json");
+                if (File.Exists(seedPath))
+                {
+                    try
+                    {
+                        File.Copy(seedPath, _filePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Failed to copy seed file: {ex.Message}");
+                    }
+                }
+            }
+
             _schemas = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             LoadSchemas();
         }
