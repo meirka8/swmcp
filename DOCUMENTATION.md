@@ -52,37 +52,25 @@ Retrieves detailed information about the currently active SolidWorks part docume
     - `Path`: Full path to the file.
     - `Title`: Title of the document.
     - `Mass`: Mass of the part.
-    - `Features`: A list of features in the feature tree (e.g., Extrusions, Fillets, Chamfers, Circular Patterns) with their specific data.
+    - `Features`: A list of features.
+        - If the feature type is **Known** (in `known_features.json`), `Data` will contain the properties defined in the schema.
+        - If the feature type is **Unknown**, `Known` will be `false` and `Data` will be empty.
     - `BoundingBox`: The X, Y, Z coordinates for the minimum and maximum points of the part's bounding box.
 
-**Example Response:**
-```json
-{
-  "Path": "C:\\Users\\Public\\Documents\\SOLIDWORKS\\SOLIDWORKS 2024\\samples\\tutorial\\api\\box.sldprt",
-  "Title": "box",
-  "Mass": 0.123,
-  "Features": [
-    {
-      "Name": "Boss-Extrude1",
-      "Type": "Extrusion",
-      "Data": {
-        "Depth": 0.05,
-        "ReverseDepth": 0.0
-      }
-    }
-  ],
-  "BoundingBox": {
-    "Min": { "X": -0.05, "Y": -0.05, "Z": 0.0 },
-    "Max": { "X": 0.05, "Y": 0.05, "Z": 0.05 }
-  }
-}
-```
+#### `RegisterFeatureSchema`
+Teaches the server how to extract data for a specific feature type.
+
+- **Inputs**:
+    - `featureType` (string): The SolidWorks feature type name (e.g., "Extrusion", "Cut").
+    - `propertyNames` (string[]): A list of property names to extract from the feature's definition object (e.g., ["Depth", "DraftAngle"]).
+- **Returns**: Confirmation message.
 
 ## Architecture
 
 The project is built using C# and .NET 8.0.
 
 - **`src/server/Program.cs`**: Entry point, configures the MCP server and dependency injection.
-- **`src/server/Controllers/SolidWorksController.cs`**: Handles direct interaction with the SolidWorks COM API. It manages the connection to the running SolidWorks instance and extracts data.
+- **`src/server/Controllers/SolidWorksController.cs`**: Handles direct interaction with the SolidWorks COM API. It uses `SchemaManager` to determine which properties to fetch dynamically.
+- **`src/server/Services/SchemaManager.cs`**: Manages the `known_features.json` database, allowing the server to "learn" new feature schemas.
+- **`src/server/Utilities/ComReflectionHelper.cs`**: Uses .NET Reflection to dynamically invoke properties on SolidWorks COM objects.
 - **`src/server/Tools/SolidWorksTool.cs`**: Defines the MCP tools exposed to the client.
-- **`src/server/Models/`**: Contains data models for serializing SolidWorks feature data (e.g., `ExtrusionData`, `FilletData`).
