@@ -1,6 +1,7 @@
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using swmcp.server.Models;
+using swmcp.server.Services;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -9,13 +10,15 @@ namespace swmcp.server.Controllers
 {
     public class SolidWorksController
     {
+        private readonly SchemaManager _schemaManager;
         private readonly ISldWorks? _sldWorks;
 
         [DllImport("oleaut32.dll", PreserveSig = false)]
         private static extern void GetActiveObject(ref Guid rclsid, IntPtr pvReserved, [MarshalAs(UnmanagedType.IUnknown)] out object ppunk);
 
-        public SolidWorksController()
+        public SolidWorksController(SchemaManager schemaManager)
         {
+            _schemaManager = schemaManager;
             try
             {
                 Guid sldWorksGuid = Type.GetTypeFromProgID("SldWorks.Application").GUID;
@@ -91,14 +94,25 @@ namespace swmcp.server.Controllers
                 var featureTypeName = swFeature.GetTypeName2();
                 var feature = new swmcp.server.Models.Feature(swFeature.Name, featureTypeName);
 
-                if (featureTypeName == "Extrusion")
+                var schema = _schemaManager.GetSchema(featureTypeName);
+                if (schema != null)
                 {
-                    var extrudeData = (ExtrudeFeatureData2)swFeature.GetDefinition();
-                    feature.Data = new ExtrusionData
+                    feature.Known = true;
+                    feature.Data = new Dictionary<string, object>();
+                    var definition = swFeature.GetDefinition();
+                    
+                    foreach (var propName in schema)
                     {
-                        Depth = extrudeData.GetDepth(false),
-                        ReverseDepth = extrudeData.GetDepth(true)
-                    };
+                        var val = swmcp.server.Utilities.ComReflectionHelper.GetProperty(definition, propName);
+                        if (val != null)
+                        {
+                            feature.Data[propName] = val;
+                        }
+                    }
+                }
+                else
+                {
+                    feature.Known = false;
                 }
 
                 featureList.Add(feature);
