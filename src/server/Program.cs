@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using swmcp.server.Controllers;
+using swmcp.server.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -14,6 +15,7 @@ builder.Logging.AddConsole(options =>
 
 // Register the MCP server and use STDIO as the transport
 builder.Services
+    .AddSingleton<SchemaManager>()
     .AddSingleton<SolidWorksController>()
     .AddMcpServer()
     .WithStdioServerTransport()
