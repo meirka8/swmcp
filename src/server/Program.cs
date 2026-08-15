@@ -1,8 +1,7 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using ModelContextProtocol.Server;
-using swmcp.server.Controllers;
+using SwBridge;
 using swmcp.server.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -13,10 +12,13 @@ builder.Logging.AddConsole(options =>
     options.LogToStandardErrorThreshold = LogLevel.Information;
 });
 
-// Register the MCP server and use STDIO as the transport
+// Register the MCP server and use STDIO as the transport.
+// SwConnection attaches lazily and re-attaches if SolidWorks restarts,
+// so registration order and SolidWorks startup timing don't matter.
 builder.Services
+    .AddSingleton<SwConnection>()
+    .AddSingleton<DocumentManager>()
     .AddSingleton<SchemaManager>()
-    .AddSingleton<SolidWorksController>()
     .AddMcpServer()
     .WithStdioServerTransport()
     .WithToolsFromAssembly();
