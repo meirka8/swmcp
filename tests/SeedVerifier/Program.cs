@@ -5,15 +5,18 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        const string DefaultSeed = @"C:\projects\aibuilds\swmcp\src\server\known_features.json";
+
         var mode = args.Length > 0 ? args[0].ToLowerInvariant() : "static";
-        var seedPath = args.Length > 1
-            ? args[1]
-            : @"C:\projects\aibuilds\docs\known_features.researched.json";
+
+        // The seed path is a different positional argument per mode — 'inspect'
+        // takes the document name first, so it must not be read as args[1].
+        string Seed(int index) => args.Length > index ? args[index] : DefaultSeed;
 
         switch (mode)
         {
             case "static":
-                RunStatic(seedPath);
+                RunStatic(Seed(1));
                 return 0;
             case "members":
                 RunMembers(args.Skip(1).ToArray());
@@ -25,15 +28,23 @@ internal static class Program
                 EnumDump.Dump(args.Skip(1).ToArray());
                 return 0;
             case "zoo":
-                return Zoo.Run(seedPath);
+                return Zoo.Run(Seed(1));
             case "open":
                 return Zoo.OpenDoc(args[1]);
             case "close":
                 return Zoo.CloseDoc(args[1]);
             case "inspect":
-                return Zoo.InspectOpenDoc(args.Length > 1 ? args[1] : "FeatureZoo", seedPath);
+                return Zoo.InspectOpenDoc(args.Length > 1 ? args[1] : "FeatureZoo", Seed(2));
             default:
-                Console.WriteLine("modes: static [seed.json] | members <IFaceName>... | zoo [seed.json] | inspect <docName> [seed.json]");
+                Console.WriteLine(
+                    "modes:\n" +
+                    "  static [seed.json]          verify a seed against the interop assembly (no SolidWorks needed)\n" +
+                    "  zoo [seed.json]             build the live feature zoo and read every spec back\n" +
+                    "  inspect <docName> [seed]    read an already-open document, changing nothing\n" +
+                    "  open <path> | close <name>  document plumbing for smoke tests\n" +
+                    "  members <IFaceName>...      dump an interop interface's readable members\n" +
+                    "  find <substring>            find interop methods by name\n" +
+                    "  enums <substring>...        dump swconst enum values");
                 return 2;
         }
     }
