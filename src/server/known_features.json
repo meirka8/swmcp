@@ -1,31 +1,33 @@
 {
-    "Extrusion": [
-        "Depth",
-        "DraftAngle",
-        "DraftOutward"
-    ],
-    "Fillet": [
-        "DefaultRadius",
-        "OverflowType"
-    ],
-    "Chamfer": [
-        "Distance",
-        "Angle",
-        "Type"
-    ],
-    "CirPattern": [
-        "TotalInstances",
-        "D1TotalAngle"
-    ],
-    "ICE": [
-        "Depth",
-        "DraftAngle",
-        "DraftOutward"
-    ],
-    "SweepThread": [
-        "ThreadStartAngle",
-        "Pitch",
-        "Diameter",
-        "MaintainThreadLength"
-    ]
+  "Extrusion": [
+    { "name": "Depth", "member": "GetDepth", "args": [ true ] },
+    { "name": "DraftAngle", "member": "GetDraftAngle", "args": [ true ] },
+    { "name": "DraftOutward", "member": "GetDraftOutward", "args": [ true ] },
+    { "name": "BothDirections", "member": "BothDirections" },
+    { "name": "ReverseDirection", "member": "ReverseDirection" }
+  ],
+  "ICE": [
+    { "name": "Depth", "member": "GetDepth", "args": [ true ] },
+    { "name": "DraftAngle", "member": "GetDraftAngle", "args": [ true ] },
+    { "name": "DraftOutward", "member": "GetDraftOutward", "args": [ true ] }
+  ],
+  "Fillet": [
+    { "name": "DefaultRadius", "member": "DefaultRadius" },
+    { "name": "OverflowType", "member": "OverflowType" }
+  ],
+  "Chamfer": [
+    { "name": "Distance", "member": "Distance" },
+    { "name": "Angle", "member": "Angle" },
+    { "name": "Type", "member": "Type" }
+  ],
+  "CirPattern": [
+    { "name": "TotalInstances", "member": "TotalInstances" },
+    { "name": "D1TotalAngle", "member": "D1TotalAngle" }
+  ],
+  "SweepThread": [
+    { "name": "ThreadStartAngle", "member": "ThreadStartAngle" },
+    { "name": "Pitch", "member": "Pitch" },
+    { "name": "Diameter", "member": "Diameter" },
+    { "name": "MaintainThreadLength", "member": "MaintainThreadLength" }
+  ]
 }

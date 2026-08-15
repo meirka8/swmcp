@@ -1,99 +1,97 @@
-import subprocess
+"""Manual smoke test for the swmcp STDIO server.
+
+Spawns the built server exe and drives it over newline-delimited JSON-RPC
+(the framing the ModelContextProtocol STDIO transport actually uses — not
+LSP Content-Length headers). Requires SolidWorks to be running.
+
+Usage:
+    python tests/test_client.py [documentName]
+"""
 import json
+import subprocess
 import sys
-import os
+from pathlib import Path
 
-def send_message(process, message):
-    json_msg = json.dumps(message)
-    content_length = len(json_msg.encode('utf-8'))
-    # Write header and message
-    process.stdin.write(f"Content-Length: {content_length}\r\n\r\n".encode('utf-8'))
-    process.stdin.write(json_msg.encode('utf-8'))
-    process.stdin.flush()
+SERVER = Path(__file__).parent.parent / "src/server/bin/Debug/net8.0-windows/server.exe"
 
-def read_message(process):
-    # Read header
-    header = ""
-    while True:
-        char = process.stdout.read(1).decode('utf-8')
-        if not char:
-            return None
-        header += char
-        if header.endswith("\r\n\r\n"):
-            break
-    
-    # Parse content length
-    content_length = 0
-    for line in header.split("\r\n"):
-        if line.startswith("Content-Length:"):
-            content_length = int(line.split(":")[1].strip())
-            break
-            
-    if content_length == 0:
-        return None
-        
-    # Read body
-    body = process.stdout.read(content_length).decode('utf-8')
-    return json.loads(body)
 
-def main():
-    # Path to the server executable
-    exe_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../src/server/bin/Debug/net8.0-windows/server.exe"))
-    
-    print(f"Starting server: {exe_path}")
-    
-    # Start the server process
-    process = subprocess.Popen(
-        [exe_path],
+def main() -> int:
+    document_name = sys.argv[1] if len(sys.argv) > 1 else "Part2"
+
+    proc = subprocess.Popen(
+        [str(SERVER)],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=sys.stderr, # Forward stderr to console
-        bufsize=0 # Unbuffered
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
     )
 
+    next_id = 0
+
+    def request(method: str, params: dict | None = None) -> dict:
+        nonlocal next_id
+        next_id += 1
+        msg = {"jsonrpc": "2.0", "id": next_id, "method": method}
+        if params is not None:
+            msg["params"] = params
+        proc.stdin.write(json.dumps(msg) + "\n")
+        proc.stdin.flush()
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                raise RuntimeError("server closed stdout")
+            response = json.loads(line)
+            if response.get("id") == next_id:
+                return response
+
+    def notify(method: str) -> None:
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": method}) + "\n")
+        proc.stdin.flush()
+
+    def call_tool(name: str, arguments: dict) -> None:
+        response = request("tools/call", {"name": name, "arguments": arguments})
+        print(f"\n=== {name} {arguments} ===")
+        if "error" in response:
+            print("RPC ERROR:", json.dumps(response["error"]))
+            return
+        result = response.get("result", response)
+        if result.get("isError"):
+            print("TOOL ERROR:")
+        for block in result.get("content", []):
+            if block.get("type") == "text":
+                try:
+                    print(json.dumps(json.loads(block["text"]), indent=2))
+                except json.JSONDecodeError:
+                    print(block["text"])
+
     try:
-        # 1. Initialize
-        print("Sending initialize...")
-        send_message(process, {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "test-client", "version": "1.0"}
-            }
+        init = request("initialize", {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "swmcp-smoke", "version": "0.0.1"},
         })
-        
-        response = read_message(process)
-        print("Initialize response:", json.dumps(response, indent=2))
-        
-        # 2. Initialized notification
-        send_message(process, {
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-            "params": {}
-        })
+        print("initialize ->", json.dumps(init.get("result", {}).get("serverInfo")))
+        notify("notifications/initialized")
 
-        # 3. Call GetPartInfo
-        print("\nCalling GetPartInfo...")
-        send_message(process, {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": "GetPartInfo",
-                "arguments": {}
-            }
-        })
-        
-        response = read_message(process)
-        print("GetPartInfo response:", json.dumps(response, indent=2))
+        tools = request("tools/list", {})
+        names = [t["name"] for t in tools["result"]["tools"]]
+        print("tools/list ->", names)
 
-    except Exception as e:
-        print(f"Error: {e}")
+        call_tool("list_open_documents", {})
+        call_tool("get_part_info", {"documentName": document_name})
+        call_tool("register_feature_schema", {
+            "featureType": "SmokeTestType",
+            "properties": [
+                {"name": "Depth", "member": "GetDepth", "args": [True]},
+                {"name": "Bare"},
+            ],
+        })
+        return 0
     finally:
-        process.terminate()
+        proc.stdin.close()
+        proc.wait(timeout=10)
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
