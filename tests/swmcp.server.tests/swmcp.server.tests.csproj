@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Pure-logic unit tests for the operation-recipe surface (unit parsing, arg
+    binding, recipe JSON round-trip) — no SolidWorks required. Not referenced
+    by any other project; run with `dotnet test`.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>swmcp.server.tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\server\server.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Real seed file, so OperationManager (constructed directly in tests) loads the real recipes. -->
+    <Content Include="..\..\src\server\known_operations.json" Link="known_operations.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

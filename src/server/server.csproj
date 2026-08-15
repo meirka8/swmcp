@@ -10,11 +10,14 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
     <PackageReference Include="ModelContextProtocol" Version="0.3.0-preview.4" />
-    <PackageReference Include="SwBridge" Version="0.3.0" />
+    <PackageReference Include="SwBridge" Version="0.4.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="known_features.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="known_operations.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

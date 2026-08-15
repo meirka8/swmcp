@@ -19,6 +19,8 @@ builder.Services
     .AddSingleton<SwConnection>()
     .AddSingleton<DocumentManager>()
     .AddSingleton<SchemaManager>()
+    .AddSingleton<OperationManager>()
+    .AddSingleton<OperationRunner>()
     .AddMcpServer()
     .WithStdioServerTransport()
     .WithToolsFromAssembly();

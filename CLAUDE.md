@@ -22,10 +22,19 @@ Run directly (STDIO server — it will sit waiting on stdin):
 dotnet run --project src/server/server.csproj
 ```
 
-Live smoke test (requires SolidWorks running; drives the built exe over newline-delimited JSON-RPC):
+Live smoke tests (require SolidWorks running; drive the built exe over newline-delimited JSON-RPC):
 
 ```bash
-python tests/test_client.py Part2
+python tests/test_client.py Part2       # read path (list_open_documents, get_part_info, register_feature_schema)
+python tests/washer_smoke.py            # write path: draws a washer end-to-end through the six operation tools
+```
+
+`washer_smoke.py` creates one new scratch part via `new_part` and leaves it open at the end (the printed transcript names its title) — close it yourself in the SolidWorks window, or via `dotnet run --project tests/SeedVerifier -- close <title>`, once you're done inspecting it. It never touches any other open document.
+
+Unit tests (pure logic — unit parsing, argument binding, recipe JSON round-trip — no SolidWorks required):
+
+```bash
+dotnet test tests/swmcp.server.tests/swmcp.server.tests.csproj
 ```
 
 SwBridge comes from the `workspace-local` NuGet source (`../localnuget`, see `nuget.config`). After changing SwBridge, repack it there — bump the version or run `dotnet nuget locals all --clear` if restore keeps a stale package:
@@ -38,7 +47,7 @@ The `pixi.toml` environment (`pixi run -e rnd jupyterlab`) is only for Python-si
 
 ## Architecture
 
-Request flow: MCP client → `Tools/SolidWorksTool.cs` (tool surface) → SwBridge (`DocumentManager`/`SwDocument`/`ModelInspector`) → SolidWorks COM. `Program.cs` wires `SwConnection`, `DocumentManager`, and `SchemaManager` as singletons and discovers tools by assembly scan (`WithToolsFromAssembly()` picks up `[McpServerToolType]`/`[McpServerTool]`).
+Request flow (read path): MCP client → `Tools/SolidWorksTool.cs` (tool surface) → SwBridge (`DocumentManager`/`SwDocument`/`ModelInspector`) → SolidWorks COM. Request flow (write/operation path): MCP client → `Tools/OperationsTool.cs` → `Services/OperationRunner.cs` → SwBridge (`ComPath`/`ComInvoker`/`DocumentStateProbes`/`ResultConverters`) → SolidWorks COM. `Program.cs` wires `SwConnection`, `DocumentManager`, `SchemaManager`, `OperationManager` and `OperationRunner` as singletons and discovers tools by assembly scan (`WithToolsFromAssembly()` picks up `[McpServerToolType]`/`[McpServerTool]`).
 
 **Logging must go to stderr.** `Program.cs` sets `LogToStandardErrorThreshold = Information` because stdout is the MCP transport. Any `Console.WriteLine` in server code corrupts the protocol stream — use `Console.Error.WriteLine`.
 
@@ -57,6 +66,18 @@ Every seed entry is signature-checked against the interop interface its feature 
 ### known_features.json persistence gotcha
 
 `src/server/known_features.json` is only a **seed**. On first run `SchemaManager` copies it to `%LOCALAPPDATA%\swmcp\known_features.json` and reads/writes there forever after. Editing the repo copy has no effect on an existing install — delete the LOCALAPPDATA copy to re-seed, or expect confusing stale behavior when debugging schema issues. The legacy format (arrays of bare strings) still parses, as bare-property specs.
+
+### The operation-recipe design (the write-side counterpart)
+
+The read side's "no per-feature C# class" rule has a write-side analogue, per `../docs/adr/0001-generic-operation-surface.md` (and 0002/0003 for verification and COM-thread confinement): a **recipe** is one declared COM invocation, described as data, instead of a dedicated tool per SolidWorks capability (`create_extrusion`, `create_fillet`, ... never exist as C# methods here).
+
+- `Models/OperationRecipe.cs` — the recipe shape: `name`, `scope` (`application`/`document`), `target` (dotted `ComPath`), `kind` (`method`/`propertySet`/`propertyGet`), `member`, `params` (named, typed, defaulted — `bool`/`int`/`double`/`string`/`length`/`angle`/`enum`/`comNull`), `requires` (preconditions), `returns`, `verify` (post-conditions), `source` (`seed`/`registered`).
+- `Services/OperationManager.cs` — the registry. `known_operations.json` (shipped, `Content`/`CopyToOutputDirectory`) is re-read fresh from disk on **every** start; `%LOCALAPPDATA%\swmcp\known_operations.json` holds only user-`register_operation`-ed recipes and is never touched by that refresh — deliberately *not* mirroring the `known_features.json` stale-copy gotcha below. `Validate` checks recipe shape against the closed v1 vocabulary; `Register` also best-effort live-checks the target/member against the COM type library via `ComTypeInspector` when SolidWorks is reachable, warning (never rejecting) on a mismatch.
+- `Services/OperationRunner.cs` — executes one recipe against one document (or the application, for `new_part`) inside a single `SwDispatcher.Run` call: resolves `target` via `ComPath`, binds named args to a positional array (`Services/UnitParser.cs` handles `"5 mm"`/`"30 deg"` quantity-string sugar; `comNull` params always bind `new DispatchWrapper(null)` — a bare `null` triggers `DISP_E_TYPEMISMATCH`), checks `requires` (refuses, never auto-satisfies), invokes via `ComInvoker`, evaluates `verify` (a step that invokes without a COM error but whose post-conditions don't hold is still reported as a failure — SolidWorks write APIs often return `Nothing`/`False` instead of throwing). `new_part` (`scope: application`, `member: NewPart`) is a documented special case: it calls `DocumentManager.NewPart` directly rather than dispatching through `ComPath`/`ComInvoker`, because creating a document (including the default-template lookup) is SwBridge policy, not a raw COM member on `ISldWorks`.
+- `Tools/OperationsTool.cs` — the six MCP tools: `list_operations`, `describe_operation`, `run_operation`, `run_operations` (ordered batch, fail-fast, no auto-undo), `register_operation` (the enrichment entry point), `describe_com_members` (wraps SwBridge's `ComPath`+`ComTypeInspector` for live member discovery — the enrichment loop's eyes). `documentName` is **required** on every `scope: document` operation — stricter than the read tools, deliberately (a wrong read is a wrong answer; a wrong write modifies the wrong part).
+- The seed (`new_part`, `select_by_id`, `clear_selection`, `insert_sketch`, `exit_sketch`, `create_circle_by_radius`, `create_line`, `extrude_boss`, `rebuild`, `undo`) is exactly the washer chain plus its safety valves; parameter defaults and proven argument shapes came from `tests/SeedVerifier/Zoo.Live.cs`'s live-verified calls. `tests/washer_smoke.py` drives the built server through all ten to build and verify a real washer part.
+- Deviation from the ADR, documented in `Models/OperationRecipe.cs`: the `selectionType(type, mark)` precondition's `type` is implemented as a `swSelectType_e` integer (given as a string) rather than the unspecified shape the ADR left open, evaluated generically via `ComPath`+`ComInvoker` against `SelectionMgr` since SwBridge 0.4.0 has no dedicated selection-type probe.
+- `known_operations.json` deliberately does **not** have the `known_features.json` stale-copy gotcha described above — see the `Services/OperationManager.cs` bullet.
 
 ### COM connection
 

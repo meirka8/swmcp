@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "operations": [
+    {
+      "name": "new_part",
+      "summary": "Creates a new part document from a template (or SolidWorks' configured default part template) and returns its identity. Always the first step of a build from scratch: call this before any other document-scoped operation, then pass the returned 'title' as documentName in every subsequent step.",
+      "scope": "application",
+      "target": "",
+      "kind": "method",
+      "member": "NewPart",
+      "requires": [],
+      "params": [
+        { "name": "templatePath", "type": "string", "required": false, "description": "Absolute path to a .prtdot template. Omit to use SolidWorks' configured default part template (swDefaultTemplatePart)." }
+      ],
+      "returns": { "type": "document" },
+      "verify": [
+        { "check": "returnNotNull" }
+      ],
+      "source": "seed",
+      "verifiedOn": "SolidWorks 2026 SP3.0, live (docs/seed-verification.md §4.11; SwBridge DocumentManager.NewPart)"
+    },
+    {
+      "name": "select_by_id",
+      "summary": "Selects (or adds to selection) one entity by name and type, populating the SolidWorks selection list that subsequent operations (extrude, fillet, pattern, ...) consume. Common type values: PLANE, FACE, EDGE, VERTEX, SKETCH, BODYFEATURE, AXIS, SKETCHSEGMENT, DATUMPOINT. mark distinguishes the role of a selection for a multi-selection feature (e.g. extrude_boss just needs mark 0 on the sketch/profile).",
+      "scope": "document",
+      "target": "Extension",
+      "kind": "method",
+      "member": "SelectByID2",
+      "requires": [],
+      "params": [
+        { "name": "name", "type": "string", "required": true, "description": "Entity name, e.g. 'Front Plane', 'Sketch1', 'Boss-Extrude1'." },
+        { "name": "type", "type": "string", "required": true, "description": "SolidWorks selection type string, e.g. 'PLANE', 'SKETCH', 'FACE', 'EDGE', 'AXIS', 'BODYFEATURE'." },
+        { "name": "x", "type": "length", "default": 0, "description": "Hint point X, used to disambiguate overlapping entities; 0 is fine when the name is unique." },
+        { "name": "y", "type": "length", "default": 0 },
+        { "name": "z", "type": "length", "default": 0 },
+        { "name": "append", "type": "bool", "default": false, "description": "true to add to the current selection instead of replacing it." },
+        { "name": "mark", "type": "int", "default": 0, "description": "Selection mark/role — see the recipe that consumes this selection for the mark it expects." },
+        { "name": "callout", "type": "comNull", "description": "Always a null COM callout reference; not settable." },
+        { "name": "selectOption", "type": "int", "default": 0, "enum": "swSelectOption_e" }
+      ],
+      "returns": { "type": "bool" },
+      "verify": [
+        { "check": "returnTrue" }
+      ],
+      "source": "seed",
+      "verifiedOn": "SolidWorks 2026 SP3.0, live (tests/SeedVerifier/Zoo.Live.cs SelectByName/SelectPlane)"
+    },
+    {
+      "name": "clear_selection",
+      "summary": "Clears the current selection list.",
+      "scope": "document",
+      "target": "",
+      "kind": "method",
+      "member": "ClearSelection2",
+      "requires": [],
+      "params": [
+        { "name": "all", "type": "bool", "default": true }
+      ],
+      "returns": { "type": "void" },
+      "verify": [],
+      "source": "seed",
+      "verifiedOn": "SolidWorks 2026 SP3.0, live (tests/SeedVerifier/Zoo.Live.cs, called before every selection in the zoo build)"
+    },
+    {
+      "name": "insert_sketch",
+      "summary": "Starts editing a new 2D sketch on the currently selected plane or face. Select a plane first (select_by_id, type PLANE) then call this. SolidWorks' InsertSketch toggles sketch-edit mode — the same COM member also exits a sketch; see 'exit_sketch'.",
+      "scope": "document",
+      "target": "SketchManager",
+      "kind": "method",
+      "member": "InsertSketch",
+      "requires": [
+        { "check": "notInSketchMode" }
+      ],
+      "params": [
+        { "name": "updateEditRebuild", "type": "bool", "default": true }
+      ],
+      "returns": { "type": "void" },
+      "verify": [
+        { "check": "sketchModeIs", "value": true }
+      ],
+      "source": "seed",
+      "verifiedOn": "SolidWorks 2026 SP3.0, live (tests/SeedVerifier/Zoo.Live.cs sk.InsertSketch(true))"
+    },
+    {
+      "name": "exit_sketch",
+      "summary": "Exits the currently active sketch, returning to the feature tree. SolidWorks' InsertSketch toggles sketch-edit mode, so this calls the same COM member as 'insert_sketch' — the difference is only the precondition and the expected resulting state.",
+      "scope": "document",
+      "target": "SketchManager",
+      "kind": "method",
+      "member": "InsertSketch",
+      "requires": [
+        { "check": "inSketchMode" }
+      ],
+      "params": [
+        { "name": "updateEditRebuild", "type": "bool", "default": true }
+      ],
+      "returns": { "type": "void" },
+      "verify": [
+        { "check": "sketchModeIs", "value": false }
+      ],
+      "source": "seed",
+      "verifiedOn": "SolidWorks 2026 SP3.0, live (tests/SeedVerifier/Zoo.Live.cs sk.InsertSketch(true) called a second time to exit)"
+    },
+    {
+      "name": "create_circle_by_radius",
+      "summary": "Adds a circle to the active sketch, centered at (centerX, centerY) in sketch space (centerZ is always 0 on a planar sketch). Requires an active sketch — call insert_sketch first. Use two calls with different radii, same center, to sketch a washer profile.",
+      "scope": "document",
+      "target": "SketchManager",
+      "kind": "method",
+      "member": "CreateCircleByRadius",
+      "requires": [
+        { "check": "inSketchMode" }
+      ],
+      "params": [
+        { "name": "centerX", "type": "length", "default": 0, "description": "Sketch-space X of the circle center." },
+        { "name": "centerY", "type": "length", "default": 0, "description": "Sketch-space Y of the circle center." },
+        { "name": "centerZ", "type": "length", "default": 0 },
+        { "name": "radius", "type": "length", "required": true }
+      ],
+      "returns": { "type": "sketchSegment" },
+      "verify": [
+        { "check": "returnNotNull" },
+        { "check": "sketchSegmentCountIncreased", "by": 1 }
+      ],
+      "source": "seed",
+      "verifiedOn": "SolidWorks 2026 SP3.0, live (tests/SeedVerifier/Zoo.Live.cs sk.CreateCircleByRadius(x,y,z,r), multiple calls)"
+    },
+    {
+      "name": "create_line",
+      "summary": "Adds a straight line segment to the active sketch, from (x1,y1) to (x2,y2) in sketch space. Requires an active sketch — call insert_sketch first.",
+      "scope": "document",
+      "target": "SketchManager",
+      "kind": "method",
+      "member": "CreateLine",
+      "requires": [
+        { "check": "inSketchMode" }
+      ],
+      "params": [
+        { "name": "x1", "type": "length", "required": true },
+        { "name": "y1", "type": "length", "required": true },
+        { "name": "z1", "type": "length", "default": 0 },
+        { "name": "x2", "type": "length", "required": true },
+        { "name": "y2", "type": "length", "required": true },
+        { "name": "z2", "type": "length", "default": 0 }
+      ],
+      "returns": { "type": "sketchSegment" },
+      "verify": [
+        { "check": "returnNotNull" },
+        { "check": "sketchSegmentCountIncreased", "by": 1 }
+      ],
+      "source": "seed",
+      "verifiedOn": "Signature-verified against SolidWorks.Interop.sldworks (ISketchManager.CreateLine(Double,Double,Double,Double,Double,Double) -> SketchSegment); not exercised by the live zoo build."
+    },
+    {
+      "name": "extrude_boss",
+      "summary": "Boss-extrudes the pre-selected sketch profile by a blind depth, adding material to a solid body (or creating one). Select the sketch first (select_by_id, type SKETCH, mark 0), make sure no sketch is being edited (exit_sketch), then call this. Leave every param but depth1 at its default for a simple one-direction boss.",
+      "scope": "document",
+      "target": "FeatureManager",
+      "kind": "method",
+      "member": "FeatureExtrusion3",
+      "requires": [
+        { "check": "documentType", "value": "Part" },
+        { "check": "notInSketchMode" },
+        { "check": "selectionCount", "min": 1 }
+      ],
+      "params": [
+        { "name": "singleDirection", "type": "bool", "default": true, "description": "Sd — extrude in one direction only." },
+        { "name": "flipSideToCut", "type": "bool", "default": false, "description": "Flip — irrelevant for a boss; meaningful for a cut." },
+        { "name": "reverseDirection", "type": "bool", "default": false, "description": "Dir — reverse the extrude direction." },
+        { "name": "endCondition1", "type": "enum", "enum": "swEndConditions_e", "default": 0, "description": "T1. 0 = Blind, 1 = Through-All." },
+        { "name": "endCondition2", "type": "enum", "enum": "swEndConditions_e", "default": 0, "description": "T2, direction 2 (only used when not singleDirection)." },
+        { "name": "depth1", "type": "length", "required": true, "description": "D1 — blind depth, direction 1." },
+        { "name": "depth2", "type": "length", "default": 0, "description": "D2 — blind depth, direction 2." },
+        { "name": "draftOn1", "type": "bool", "default": false, "description": "Dchk1." },
+        { "name": "draftOn2", "type": "bool", "default": false, "description": "Dchk2." },
+        { "name": "draftOutward1", "type": "bool", "default": false, "description": "Ddir1." },
+        { "name": "draftOutward2", "type": "bool", "default": false, "description": "Ddir2." },
+        { "name": "draftAngle1", "type": "angle", "default": 0, "description": "Dang1." },
+        { "name": "draftAngle2", "type": "angle", "default": 0, "description": "Dang2." },
+        { "name": "offsetReverse1", "type": "bool", "default": false },
+        { "name": "offsetReverse2", "type": "bool", "default": false },
+        { "name": "translateSurface1", "type": "bool", "default": false },
+        { "name": "translateSurface2", "type": "bool", "default": false },
+        { "name": "merge", "type": "bool", "default": true, "description": "Merge the result with the existing solid body." },
+        { "name": "useFeatureScope", "type": "bool", "default": true },
+        { "name": "useAutoSelect", "type": "bool", "default": true },
+        { "name": "startCondition", "type": "enum", "enum": "swStartConditions_e", "default": 0, "description": "T0. 0 = swStartSketchPlane." },
+        { "name": "startOffset", "type": "length", "default": 0 },
+        { "name": "flipStartOffset", "type": "bool", "default": false }
+      ],
+      "returns": { "type": "feature" },
+      "verify": [
+        { "check": "returnNotNull" },
+        { "check": "featureCountIncreased", "by": 1 }
+      ],
+      "source": "seed",
+      "verifiedOn": "SolidWorks 2026 SP3.0, live (docs/seed-verification.md; tests/SeedVerifier/Zoo.Live.cs fm.FeatureExtrusion3(...)). Note: only the FIRST extrude in a part reports IFeature.GetTypeName2()=='Extrusion' on this build; every subsequent extrude/cut reports 'ICE' (docs/seed-verification.md §4.1) — both are boss/cut extrudes, get_part_info's seed schema covers both type names."
+    },
+    {
+      "name": "rebuild",
+      "summary": "Forces a rebuild of the document and reports whether it completed without errors.",
+      "scope": "document",
+      "target": "",
+      "kind": "method",
+      "member": "EditRebuild3",
+      "requires": [],
+      "params": [],
+      "returns": { "type": "bool" },
+      "verify": [
+        { "check": "returnTrue" }
+      ],
+      "source": "seed",
+      "verifiedOn": "SolidWorks 2026 SP3.0, live (tests/SeedVerifier/Zoo.Live.cs doc.ForceRebuild3; SwBridge DocumentStateProbes.RebuildSucceeded uses the same EditRebuild3 member)"
+    },
+    {
+      "name": "undo",
+      "summary": "Undoes the last N document edits. No operation ever triggers this automatically (ADR 0002: fail-fast, no auto-rollback) — call it deliberately to back out of a partial state after a failed step.",
+      "scope": "document",
+      "target": "",
+      "kind": "method",
+      "member": "EditUndo2",
+      "requires": [],
+      "params": [
+        { "name": "steps", "type": "int", "default": 1, "description": "Number of edits to undo." }
+      ],
+      "returns": { "type": "void" },
+      "verify": [],
+      "source": "seed",
+      "verifiedOn": "Signature-verified against SolidWorks.Interop.sldworks (IModelDoc2.EditUndo2(Int32) -> Void); not exercised by the live zoo build. See ADR 0002's open question on EditUndo3 reliability for compound API-driven state — EditUndo2 is used here as the simpler, documented member."
+    }
+  ]
+}
