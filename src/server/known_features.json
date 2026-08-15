@@ -6,28 +6,137 @@
     { "name": "BothDirections", "member": "BothDirections" },
     { "name": "ReverseDirection", "member": "ReverseDirection" }
   ],
+  "Cut": [
+    { "name": "Depth", "member": "GetDepth", "args": [ true ] },
+    { "name": "DraftAngle", "member": "GetDraftAngle", "args": [ true ] },
+    { "name": "DraftOutward", "member": "GetDraftOutward", "args": [ true ] },
+    { "name": "BothDirections", "member": "BothDirections" },
+    { "name": "ReverseDirection", "member": "ReverseDirection" }
+  ],
   "ICE": [
     { "name": "Depth", "member": "GetDepth", "args": [ true ] },
     { "name": "DraftAngle", "member": "GetDraftAngle", "args": [ true ] },
-    { "name": "DraftOutward", "member": "GetDraftOutward", "args": [ true ] }
+    { "name": "DraftOutward", "member": "GetDraftOutward", "args": [ true ] },
+    { "name": "BothDirections", "member": "BothDirections" },
+    { "name": "ReverseDirection", "member": "ReverseDirection" }
   ],
   "Fillet": [
     { "name": "DefaultRadius", "member": "DefaultRadius" },
-    { "name": "OverflowType", "member": "OverflowType" }
+    { "name": "OverflowType", "member": "OverflowType" },
+    { "name": "FilletItemsCount", "member": "FilletItemsCount" },
+    { "name": "IsMultipleRadius", "member": "IsMultipleRadius" },
+    { "name": "Type", "member": "Type" },
+    { "name": "PropagateToTangentFaces", "member": "PropagateToTangentFaces" },
+    { "name": "EdgeCount", "member": "GetEdgeCount" }
   ],
   "Chamfer": [
+    { "name": "Distance", "member": "GetEdgeChamferDistance", "args": [ 0 ] },
+    { "name": "Distance2", "member": "GetEdgeChamferDistance", "args": [ 1 ] },
+    { "name": "Angle", "member": "EdgeChamferAngle" },
+    { "name": "Type", "member": "Type" },
+    { "name": "EqualDistance", "member": "EqualDistance" },
+    { "name": "TangentPropagation", "member": "TangentPropagation" },
+    { "name": "EdgeCount", "member": "GetEdgeCount" }
+  ],
+  "CirPattern": [
+    { "name": "TotalInstances", "member": "TotalInstances" },
+    { "name": "Spacing", "member": "Spacing" },
+    { "name": "EqualSpacing", "member": "EqualSpacing" },
+    { "name": "Symmetric", "member": "Symmetric" },
+    { "name": "ReverseDirection", "member": "ReverseDirection" },
+    { "name": "GeometryPattern", "member": "GeometryPattern" }
+  ],
+  "LPattern": [
+    { "name": "D1TotalInstances", "member": "D1TotalInstances" },
+    { "name": "D1Spacing", "member": "D1Spacing" },
+    { "name": "D2TotalInstances", "member": "D2TotalInstances" },
+    { "name": "D2Spacing", "member": "D2Spacing" },
+    { "name": "D1ReverseDirection", "member": "D1ReverseDirection" },
+    { "name": "GeometryPattern", "member": "GeometryPattern" }
+  ],
+  "MirrorPattern": [
+    { "name": "MirrorPlaneType", "member": "GetMirrorPlaneType" },
+    { "name": "PatternFeatureCount", "member": "GetPatternFeatureCount" },
+    { "name": "GeometryPattern", "member": "GeometryPattern" }
+  ],
+  "Revolution": [
+    { "name": "Angle", "member": "GetRevolutionAngle", "args": [ true ] },
+    { "name": "ReverseDirection", "member": "ReverseDirection" },
+    { "name": "Type", "member": "Type" },
+    { "name": "Merge", "member": "Merge" }
+  ],
+  "RevCut": [
+    { "name": "Angle", "member": "GetRevolutionAngle", "args": [ true ] },
+    { "name": "ReverseDirection", "member": "ReverseDirection" },
+    { "name": "Type", "member": "Type" }
+  ],
+  "Shell": [
+    { "name": "Thickness", "member": "Thickness" },
+    { "name": "Direction", "member": "Direction" },
+    { "name": "FacesRemovedCount", "member": "FacesRemovedCount" }
+  ],
+  "Draft": [
+    { "name": "Angle", "member": "Angle" },
+    { "name": "Type", "member": "Type" },
+    { "name": "ReverseDirection", "member": "ReverseDirection" },
+    { "name": "FacePropagation", "member": "FacePropagation" }
+  ],
+  "RefPlane": [
     { "name": "Distance", "member": "Distance" },
     { "name": "Angle", "member": "Angle" },
     { "name": "Type", "member": "Type" }
   ],
-  "CirPattern": [
-    { "name": "TotalInstances", "member": "TotalInstances" },
-    { "name": "D1TotalAngle", "member": "D1TotalAngle" }
+  "RefAxis": [
+    { "name": "Type", "member": "Type" }
+  ],
+  "Rib": [
+    { "name": "Thickness", "member": "Thickness" },
+    { "name": "DraftAngle", "member": "DraftAngle" },
+    { "name": "IsTwoSided", "member": "IsTwoSided" },
+    { "name": "EnableDraft", "member": "EnableDraft" },
+    { "name": "ReverseThicknessDir", "member": "ReverseThicknessDir" }
+  ],
+  "Dome": [
+    { "name": "Height", "member": "Height" },
+    { "name": "Elliptical", "member": "Elliptical" },
+    { "name": "ReverseDir", "member": "ReverseDir" }
+  ],
+  "Sweep": [
+    { "name": "SweepType", "member": "SweepType" },
+    { "name": "ProfileType", "member": "GetProfileType" },
+    { "name": "PathType", "member": "GetPathType" },
+    { "name": "GuideCurvesCount", "member": "GetGuideCurvesCount" },
+    { "name": "TwistAngle", "member": "GetTwistAngle" },
+    { "name": "ThinFeature", "member": "ThinFeature" },
+    { "name": "MergeSmoothFaces", "member": "MergeSmoothFaces" },
+    { "name": "CircularProfile", "member": "CircularProfile" },
+    { "name": "CircularProfileDiameter", "member": "CircularProfileDiameter" }
+  ],
+  "Loft": [
+    { "name": "NumberOfSections", "member": "NumberOfSections" },
+    { "name": "ProfileCount", "member": "GetProfileCount" },
+    { "name": "GuideCurvesCount", "member": "GetGuideCurvesCount" },
+    { "name": "Close", "member": "Close" },
+    { "name": "StartTangencyType", "member": "StartTangencyType" },
+    { "name": "EndTangencyType", "member": "EndTangencyType" },
+    { "name": "GuideCurveInfluence", "member": "GuideCurveInfluence" }
+  ],
+  "HoleWzd": [
+    { "name": "Type", "member": "Type" },
+    { "name": "Standard", "member": "Standard" },
+    { "name": "FastenerType", "member": "FastenerType" },
+    { "name": "FastenerSize", "member": "FastenerSize" },
+    { "name": "Diameter", "member": "Diameter" },
+    { "name": "Depth", "member": "Depth" },
+    { "name": "MajorDiameter", "member": "MajorDiameter" },
+    { "name": "ReverseDirection", "member": "ReverseDirection" }
   ],
   "SweepThread": [
     { "name": "ThreadStartAngle", "member": "ThreadStartAngle" },
     { "name": "Pitch", "member": "Pitch" },
     { "name": "Diameter", "member": "Diameter" },
-    { "name": "MaintainThreadLength", "member": "MaintainThreadLength" }
+    { "name": "MaintainThreadLength", "member": "MaintainThreadLength" },
+    { "name": "RightHanded", "member": "RightHanded" },
+    { "name": "Revolutions", "member": "Revolutions" }
   ]
 }

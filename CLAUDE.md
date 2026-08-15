@@ -52,7 +52,7 @@ SolidWorks feature definitions (`IFeature.GetDefinition()`) are late-bound COM o
 - A spec is `{name, member, args?}` because definition objects expose some values as bare properties (`BothDirections`) and others only via accessor methods (`GetDepth(true)`) — verified live; bare names alone were silently returning nothing before this format existed.
 - Adding support for a new feature type normally requires **no C# changes** — register the type via the `register_feature_schema` tool or seed `known_features.json`. Feature type names come from `IFeature.GetTypeName2()` (e.g. `Extrusion`, `Fillet`, `CirPattern`).
 
-Only the `Extrusion` seed entries are live-verified (SolidWorks 2024); other seed entries are best-effort. The planned enrichment path is a tool that consults SolidWorks API documentation to derive correct specs for unknown feature types.
+Every seed entry is signature-checked against the interop interface its feature type maps to, and 15 of the 20 types are live-verified end to end against SolidWorks 2026 SP3.0 (feature created with known dimensions, value read back and compared). `Sweep`, `Loft`, `HoleWzd`, `Rib`, `SweepThread` and `Dome` are signature-verified only. `tests/SeedVerifier` is the standalone harness that does both (`static` and `zoo` modes); `../models/FeatureZoo.SLDPRT` is the regression part it builds; `../docs/seed-verification.md` has the per-spec verdicts and the SolidWorks quirks found. The planned enrichment path is a tool that consults SolidWorks API documentation to derive correct specs for unknown feature types.
 
 ### known_features.json persistence gotcha
 

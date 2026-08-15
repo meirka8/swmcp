@@ -80,7 +80,11 @@ Teaches the server how to extract data for a feature type. The registration pers
 
 ## Schema store
 
-`src/server/known_features.json` is only a **seed**. On first run it is copied to `%LOCALAPPDATA%\swmcp\known_features.json`, which is the file actually read and written from then on. Only the `Extrusion` entries in the current seed are verified against a live SolidWorks 2024 instance; other entries are best-effort and yield values only where the member names happen to be real bare properties.
+`src/server/known_features.json` is only a **seed**. On first run it is copied to `%LOCALAPPDATA%\swmcp\known_features.json`, which is the file actually read and written from then on.
+
+Every spec in the current seed is **signature-checked** against the definition interface it targets in the `SolidWorks.Interop.sldworks` assembly, so no entry names a member that does not exist. Beyond that, 15 of the 20 feature types are **live-verified** against SolidWorks 2026 SP3.0 — each feature was created programmatically with known dimensions and every value read back matched exactly: `Extrusion`, `Cut`/`ICE`, `Fillet`, `Chamfer`, `CirPattern`, `LPattern`, `MirrorPattern`, `Revolution`, `RevCut`, `Shell`, `Draft`, `RefPlane`, `RefAxis`. `Sweep`, `Loft`, `HoleWzd`, `Rib`, `SweepThread` and `Dome` are signature-verified only. `models/FeatureZoo.SLDPRT` in the workspace is the regression asset those features were built into; `tests/SeedVerifier` is the harness. See `docs/seed-verification.md` for the per-spec verdicts and the SolidWorks behaviours discovered along the way.
+
+Values are raw SolidWorks API units: **meters and radians**, never the document's display units. Specs deliberately read only scalars — a member that returns a COM object reference (a sketch, plane or face) is left out of the seed, since it cannot be usefully serialized into a tool response.
 
 The legacy schema format (plain arrays of property-name strings) is still parsed — entries are treated as bare properties — but the modern object form is written on save.
 

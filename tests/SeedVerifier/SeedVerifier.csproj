@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Standalone verification harness. Deliberately NOT referenced by the server
+    and not part of any solution: it exists to check the known_features.json
+    seed against the real SolidWorks interop assembly (static mode) and against
+    a live SolidWorks instance (zoo mode).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SeedVerifier</AssemblyName>
+    <RootNamespace>SeedVerifier</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SwBridge" Version="0.3.0" />
+  </ItemGroup>
+
+</Project>
