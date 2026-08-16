@@ -21,7 +21,7 @@
     },
     {
       "name": "select_by_id",
-      "summary": "Selects (or adds to selection) one entity by name and type, populating the SolidWorks selection list that subsequent operations (extrude, fillet, pattern, ...) consume. Common type values: PLANE, FACE, EDGE, VERTEX, SKETCH, BODYFEATURE, AXIS, SKETCHSEGMENT, DATUMPOINT. mark distinguishes the role of a selection for a multi-selection feature (e.g. extrude_boss just needs mark 0 on the sketch/profile).",
+      "summary": "Selects (or adds to selection) one entity by name and type, populating the SolidWorks selection list that subsequent operations (extrude, fillet, pattern, ...) consume. Common type values: PLANE, FACE, VERTEX, SKETCH, BODYFEATURE, AXIS, SKETCHSEGMENT, DATUMPOINT. mark distinguishes the role of a selection for a multi-selection feature (e.g. extrude_boss just needs mark 0 on the sketch/profile). WARNING for EDGE: the x/y/z hint point behaves like a view-dependent screen pick, not a reliable model-space identity — UAT proved it silently selects a DIFFERENT edge than intended after the part's topology changes (e.g. a cut added since the coordinates were chosen), and it silently refuses to select some back-facing edges entirely, both while still reporting selectionCount as if nothing were wrong. Prefer select_by_ray for EDGE and FACE selection — it is view-independent and did not miss once across the same test.",
       "scope": "document",
       "target": "Extension",
       "kind": "method",
@@ -214,7 +214,7 @@
     },
     {
       "name": "undo",
-      "summary": "Undoes the last N document edits. No operation ever triggers this automatically (ADR 0002: fail-fast, no auto-rollback) — call it deliberately to back out of a partial state after a failed step.",
+      "summary": "Undoes the last N document edits. No operation ever triggers this automatically (ADR 0002: fail-fast, no auto-rollback) — call it deliberately to back out of a partial state after a failed step. IModelDoc2.EditUndo2 is void — SolidWorks gives no status code for this call, so its own success cannot be verified by return value (a documented limitation, not an oversight: the 'noNewRebuildErrors' check below confirms the document is still in a clean, rebuildable state afterward, which is the closest real post-condition the API offers). Compare 'documentState.featureCount'/'selectionCount' across the surrounding steps in the transcript to confirm what actually changed.",
       "scope": "document",
       "target": "",
       "kind": "method",
@@ -224,9 +224,192 @@
         { "name": "steps", "type": "int", "default": 1, "description": "Number of edits to undo." }
       ],
       "returns": { "type": "void" },
-      "verify": [],
+      "verify": [
+        { "check": "noNewRebuildErrors" }
+      ],
       "source": "seed",
       "verifiedOn": "Signature-verified against SolidWorks.Interop.sldworks (IModelDoc2.EditUndo2(Int32) -> Void); not exercised by the live zoo build. See ADR 0002's open question on EditUndo3 reliability for compound API-driven state — EditUndo2 is used here as the simpler, documented member."
+    },
+    {
+      "name": "cut_extrude",
+      "summary": "Cut-extrudes the pre-selected sketch profile, removing material. Select the sketch first (select_by_id, type SKETCH, mark 0), exit sketch mode, then call. Mirrors extrude_boss's params but calls FeatureCut4 (27 params — a different, longer signature than extrude_boss's FeatureExtrusion3). If this fails verification (returnNotNull/featureCountIncreased), the single most common cause is the cut extruding AWAY from the material instead of into it (docs/seed-verification.md §4.7) — retry with reverseDirection true before assuming anything else is wrong.",
+      "scope": "document",
+      "target": "FeatureManager",
+      "kind": "method",
+      "member": "FeatureCut4",
+      "requires": [
+        { "check": "documentType", "value": "Part" },
+        { "check": "notInSketchMode" },
+        { "check": "selectionCount", "min": 1 }
+      ],
+      "params": [
+        { "name": "singleDirection", "type": "bool", "default": true, "description": "Sd — cut in one direction only." },
+        { "name": "flipSideToCut", "type": "bool", "default": false, "description": "Flip — cut the other side of the sketch profile." },
+        { "name": "reverseDirection", "type": "bool", "default": false, "description": "Dir — reverse the cut direction; try true first if the cut returns nothing." },
+        { "name": "endCondition1", "type": "enum", "enum": "swEndConditions_e", "default": 0, "description": "T1. 0 = Blind (uses depth1), 1 = Through-All." },
+        { "name": "endCondition2", "type": "enum", "enum": "swEndConditions_e", "default": 0, "description": "T2, direction 2 (only used when not singleDirection)." },
+        { "name": "depth1", "type": "length", "default": 0, "description": "D1 — blind depth, direction 1. Required in practice for endCondition1=Blind." },
+        { "name": "depth2", "type": "length", "default": 0, "description": "D2 — blind depth, direction 2." },
+        { "name": "draftOn1", "type": "bool", "default": false },
+        { "name": "draftOn2", "type": "bool", "default": false },
+        { "name": "draftOutward1", "type": "bool", "default": false },
+        { "name": "draftOutward2", "type": "bool", "default": false },
+        { "name": "draftAngle1", "type": "angle", "default": 0 },
+        { "name": "draftAngle2", "type": "angle", "default": 0 },
+        { "name": "offsetReverse1", "type": "bool", "default": false },
+        { "name": "offsetReverse2", "type": "bool", "default": false },
+        { "name": "translateSurface1", "type": "bool", "default": false },
+        { "name": "translateSurface2", "type": "bool", "default": false },
+        { "name": "normalCut", "type": "bool", "default": false, "description": "Cut normal to the sketch surface rather than along the sketch plane's own normal." },
+        { "name": "useFeatureScope", "type": "bool", "default": true },
+        { "name": "useAutoSelect", "type": "bool", "default": true },
+        { "name": "assemblyFeatureScope", "type": "bool", "default": false },
+        { "name": "autoSelectComponents", "type": "bool", "default": false },
+        { "name": "propagateFeatureToParts", "type": "bool", "default": false },
+        { "name": "startCondition", "type": "enum", "enum": "swStartConditions_e", "default": 0, "description": "T0. 0 = swStartSketchPlane." },
+        { "name": "startOffset", "type": "length", "default": 0 },
+        { "name": "flipStartOffset", "type": "bool", "default": false },
+        { "name": "optimizeGeometry", "type": "bool", "default": false }
+      ],
+      "returns": { "type": "feature" },
+      "verify": [
+        { "check": "returnNotNull" },
+        { "check": "featureCountIncreased", "by": 1 }
+      ],
+      "source": "seed",
+      "verifiedOn": "Promoted from docs/uat-registered-operations.json — UAT-verified live: 3 cuts across the bracket and CSWA-style exam rungs, removed-volume exact to 9 significant figures against a hand calculation each time (docs/uat-ladder-report.md rungs 2-3). Signature matches IFeatureManager.FeatureCut4 (27 params) confirmed independently against SolidWorks.Interop.sldworks."
+    },
+    {
+      "name": "fillet_constant_radius",
+      "summary": "Constant-radius fillet on the pre-selected edge(s) or face(s) (FeatureFillet3). Select the edge first — select_by_ray is the reliable way to pick a specific edge (select_by_id's x/y/z hint is unreliable for edges; see its own summary). options=195 (Propagate|UniformRadius|AttachEdges|KeepFeatures) is the combination that works live; plain propagate returns null. radius2/rho and every comNull array param are for variable-radius, face, and conic fillets and are ignored for a simple constant-radius fillet (filletType=0) — leave them at their defaults.",
+      "scope": "document",
+      "target": "FeatureManager",
+      "kind": "method",
+      "member": "FeatureFillet3",
+      "requires": [
+        { "check": "documentType", "value": "Part" },
+        { "check": "notInSketchMode" },
+        { "check": "selectionCount", "min": 1 }
+      ],
+      "params": [
+        { "name": "options", "type": "int", "enum": "swFeatureFilletOptions_e", "default": 195, "description": "195 = Propagate|UniformRadius|AttachEdges|KeepFeatures." },
+        { "name": "radius", "type": "length", "required": true, "description": "R1 — the constant fillet radius." },
+        { "name": "radius2", "type": "double", "default": 0, "description": "R2 — second radius, for a variable/two-distance fillet; ignored when filletType=0 (simple constant radius)." },
+        { "name": "rho", "type": "double", "default": 0, "description": "Rho — conic parameter for a conic (P-curve) fillet; ignored for filletType=0." },
+        { "name": "filletType", "type": "enum", "enum": "swFeatureFilletType_e", "default": 0, "description": "Ftyp. 0 = simple/constant radius." },
+        { "name": "overflowType", "type": "int", "default": 0 },
+        { "name": "conicTypeForCurvature", "type": "int", "default": 0, "description": "ConicRhoType." },
+        { "name": "radiiArray", "type": "comNull", "description": "Radii — per-edge radii for a multi-radius fillet; comNull for a simple fillet." },
+        { "name": "distance2Array", "type": "comNull", "description": "Dist2Arr — second distances, for a distance-distance fillet; comNull for a simple fillet." },
+        { "name": "rhoArray", "type": "comNull", "description": "RhoArr — per-edge conic rho values; comNull for a simple fillet." },
+        { "name": "setbackDistances", "type": "comNull", "description": "SetBackDistances — for a setback vertex fillet; comNull for a simple fillet." },
+        { "name": "pointRadiusArray", "type": "comNull" },
+        { "name": "pointDistance2Array", "type": "comNull" },
+        { "name": "pointRhoArray", "type": "comNull" }
+      ],
+      "returns": { "type": "feature" },
+      "verify": [
+        { "check": "returnNotNull" },
+        { "check": "featureCountIncreased", "by": 1 }
+      ],
+      "source": "seed",
+      "verifiedOn": "Promoted from docs/uat-registered-operations.json — UAT-verified live: 8 fillets across the bracket and CSWA-style exam rungs, each removing exactly (1-pi/4)*R^2*L (docs/uat-ladder-report.md rungs 2-3). Cleaned up from the UAT recipe for seed promotion against the true IFeatureManager.FeatureFillet3 signature (14 params, confirmed independently against SolidWorks.Interop.sldworks): the UAT recipe had 15 entries — an extra scalar param with no real counterpart, inserted where R2/Rho belong — which shifted every name from position 3 onward by one (all default/comNull and functionally inert for a simple fillet, so the live numeric results were unaffected by the mislabeling). Removed the extra entry and renamed the rest to match (radius2=R2, rho=Rho, distance2Array=Dist2Arr, rhoArray=RhoArr, setbackDistances=SetBackDistances, pointRadiusArray/pointDistance2Array/pointRhoArray); the positional call for every param that actually matters to a simple fillet (options, radius) is unchanged."
+    },
+    {
+      "name": "select_by_ray",
+      "summary": "Selects the entity hit by a model-space ray (IModelDocExtension.SelectByRay) — view-independent, unlike select_by_id's coordinate hint, and the reliable way to pick an edge or face. Point (x,y,z) is the ray origin, (rx,ry,rz) the direction (a plain direction vector, not a unit-carrying length — component magnitudes only need to be consistent with each other, not any particular unit), radius the pick tolerance. type is a swSelectType_e integer (1=EDGE, 2=FACE, 3=VERTEX).",
+      "scope": "document",
+      "target": "Extension",
+      "kind": "method",
+      "member": "SelectByRay",
+      "requires": [
+        { "check": "documentType", "value": "Part" }
+      ],
+      "params": [
+        { "name": "x", "type": "length", "required": true, "description": "Ray origin X." },
+        { "name": "y", "type": "length", "required": true, "description": "Ray origin Y." },
+        { "name": "z", "type": "length", "required": true, "description": "Ray origin Z." },
+        { "name": "rx", "type": "double", "default": 0, "description": "Ray direction X component (unitless)." },
+        { "name": "ry", "type": "double", "default": 0, "description": "Ray direction Y component (unitless)." },
+        { "name": "rz", "type": "double", "default": -1, "description": "Ray direction Z component (unitless); default points -Z, i.e. straight down onto a part sketched on Front/Top." },
+        { "name": "radius", "type": "length", "default": 0.0005, "description": "Pick tolerance around the ray." },
+        { "name": "type", "type": "enum", "enum": "swSelectType_e", "default": 1, "description": "1 = EDGE, 2 = FACE, 3 = VERTEX." },
+        { "name": "append", "type": "bool", "default": false, "description": "true to add to the current selection instead of replacing it." },
+        { "name": "mark", "type": "int", "default": 0 },
+        { "name": "option", "type": "int", "enum": "swSelectOption_e", "default": 0 }
+      ],
+      "returns": { "type": "bool" },
+      "verify": [
+        { "check": "returnTrue" }
+      ],
+      "source": "seed",
+      "verifiedOn": "Promoted from docs/uat-registered-operations.json — UAT-verified live: picked the correct 6 mm vertical edge at both the front and back corner of a plate where select_by_id picked the wrong edge or refused entirely (docs/uat-ladder-report.md B3/rung2f). Signature matches IModelDocExtension.SelectByRay(11 params) confirmed independently against SolidWorks.Interop.sldworks."
+    },
+    {
+      "name": "set_material",
+      "summary": "Applies a SolidWorks material to the part (IPartDoc.SetMaterialPropertyName2). database is usually 'SOLIDWORKS Materials' or the full path to a .sldmat file; name is the material name as shown in the material tree, e.g. '6061 Alloy'. configuration '' means the active configuration. This call is void — SolidWorks gives no status code, so it cannot be verified by return value here; get_part_info's mass figure is the practical readback (an unassigned part computes mass at 1000 kg/m^3, so a mass matching the expected material's density is the confirmation this worked).",
+      "scope": "document",
+      "target": "",
+      "kind": "method",
+      "member": "SetMaterialPropertyName2",
+      "requires": [
+        { "check": "documentType", "value": "Part" }
+      ],
+      "params": [
+        { "name": "configuration", "type": "string", "default": "", "description": "Configuration name; '' means the active configuration." },
+        { "name": "database", "type": "string", "default": "SOLIDWORKS Materials", "description": "Material database name or full path to a .sldmat file." },
+        { "name": "name", "type": "string", "required": true, "description": "Material name as shown in the material tree, e.g. '6061 Alloy'." }
+      ],
+      "returns": { "type": "void" },
+      "verify": [],
+      "source": "seed",
+      "verifiedOn": "Promoted from docs/uat-registered-operations.json — UAT-verified live: '6061 Alloy' from 'SOLIDWORKS Materials' produced an implied density of exactly 2700 kg/m^3 in get_part_info's mass figure (docs/uat-ladder-report.md rung 3). Signature matches IPartDoc.SetMaterialPropertyName2(3 params) confirmed independently against SolidWorks.Interop.sldworks."
+    },
+    {
+      "name": "save_as",
+      "summary": "Saves the document to an absolute path (IModelDoc2.SaveAs3). version 0 = current SolidWorks version, options 1 = silent (swSaveAsOptions_Silent). Returns swFileSaveError_e as a plain int, where 0 means success — verified via returnEquals rather than returnTrue, since this is a status code, not a bool.",
+      "scope": "document",
+      "target": "",
+      "kind": "method",
+      "member": "SaveAs3",
+      "requires": [],
+      "params": [
+        { "name": "path", "type": "string", "required": true, "description": "Absolute destination path, including extension, e.g. 'C:\\scratch\\Part1.SLDPRT'." },
+        { "name": "version", "type": "int", "default": 0, "description": "0 = current SolidWorks version (swSaveAsCurrentVersion)." },
+        { "name": "options", "type": "int", "enum": "swSaveAsOptions_e", "default": 1, "description": "1 = swSaveAsOptions_Silent." }
+      ],
+      "returns": { "type": "number" },
+      "verify": [
+        { "check": "returnEquals", "expected": 0 }
+      ],
+      "source": "seed",
+      "verifiedOn": "Promoted from docs/uat-registered-operations.json, with the B5 fix applied — UAT wrote a correct 70547-byte file live but the recipe reported failure because the old closed verify vocabulary had no way to express 'expect a status code' (docs/uat-ladder-report.md B5); returnEquals (added this round) fixes exactly that. Signature matches IModelDoc2.SaveAs3(String,Int32,Int32)->Int32 confirmed independently against SolidWorks.Interop.sldworks."
+    },
+    {
+      "name": "create_corner_rectangle",
+      "summary": "Adds a rectangle to the active sketch as four lines, from corner (x1,y1) to the opposite corner (x2,y2) in sketch space (ISketchManager.CreateCornerRectangle). Requires an active sketch — call insert_sketch first. The single most common sketch primitive in mechanical work; prefer this over four create_line calls for a rectangular profile.",
+      "scope": "document",
+      "target": "SketchManager",
+      "kind": "method",
+      "member": "CreateCornerRectangle",
+      "requires": [
+        { "check": "inSketchMode" }
+      ],
+      "params": [
+        { "name": "x1", "type": "length", "required": true, "description": "First corner X." },
+        { "name": "y1", "type": "length", "required": true, "description": "First corner Y." },
+        { "name": "z1", "type": "length", "default": 0 },
+        { "name": "x2", "type": "length", "required": true, "description": "Opposite corner X." },
+        { "name": "y2", "type": "length", "required": true, "description": "Opposite corner Y." },
+        { "name": "z2", "type": "length", "default": 0 }
+      ],
+      "returns": { "type": "sketchSegments" },
+      "verify": [
+        { "check": "returnNotNull" },
+        { "check": "sketchSegmentCountIncreased", "by": 4 }
+      ],
+      "source": "seed",
+      "verifiedOn": "Signature matches ISketchManager.CreateCornerRectangle(Double,Double,Double,Double,Double,Double)->Object confirmed against SolidWorks.Interop.sldworks; UAT did not register or exercise this recipe (docs/uat-ladder-report.md: 'worth seeding, though I did not register it... Untested by me'). Live-verified as part of this round's tests/bracket_smoke.py."
     }
   ]
 }

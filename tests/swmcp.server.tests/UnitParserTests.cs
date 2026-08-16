@@ -8,12 +8,29 @@ namespace swmcp.server.tests
     {
         private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
+        // UAT B1: a bare number (JSON number or a numeric string with no unit
+        // suffix) must be REJECTED for length/angle params — the 1000x silent
+        // unit error the UAT found ({"depth1": 6} silently meaning 6 meters).
+
         [Fact]
-        public void Length_BareNumber_IsMeters()
+        public void Length_BareJsonNumber_IsRejected()
         {
-            Assert.True(UnitParser.TryParseLength(Parse("0.005"), out var meters, out var error));
-            Assert.Null(error);
-            Assert.Equal(0.005, meters, 9);
+            Assert.False(UnitParser.TryParseLength(Parse("0.005"), out _, out var error));
+            Assert.Contains("must include a unit", error);
+        }
+
+        [Fact]
+        public void Length_BareNumericString_IsRejected()
+        {
+            Assert.False(UnitParser.TryParseLength(Parse("\"20\""), out _, out var error));
+            Assert.Contains("must include a unit", error);
+        }
+
+        [Fact]
+        public void Angle_BareJsonNumber_IsRejected()
+        {
+            Assert.False(UnitParser.TryParseAngle(Parse("1.5707963268"), out _, out var error));
+            Assert.Contains("must include a unit", error);
         }
 
         [Theory]
@@ -21,21 +38,13 @@ namespace swmcp.server.tests
         [InlineData("\"5mm\"", 0.005)]
         [InlineData("\"1 cm\"", 0.01)]
         [InlineData("\"1 in\"", 0.0254)]
-        [InlineData("\"0.5 m\"", 0.5)]
-        [InlineData("\"20\"", 20.0)] // bare-number string, no unit suffix -> canonical unit (meters)
+        [InlineData("\"0.5 m\"", 0.5)] // explicit SI quantity string — always allowed
+        [InlineData("\"0.006 m\"", 0.006)]
         public void Length_QuantityString_ConvertsToMeters(string json, double expectedMeters)
         {
             Assert.True(UnitParser.TryParseLength(Parse(json), out var meters, out var error));
             Assert.Null(error);
             Assert.Equal(expectedMeters, meters, 9);
-        }
-
-        [Fact]
-        public void Angle_BareNumber_IsRadians()
-        {
-            Assert.True(UnitParser.TryParseAngle(Parse("1.5707963268"), out var radians, out var error));
-            Assert.Null(error);
-            Assert.Equal(Math.PI / 2, radians, 6);
         }
 
         [Theory]
@@ -47,6 +56,14 @@ namespace swmcp.server.tests
             Assert.True(UnitParser.TryParseAngle(Parse(json), out var radians, out var error));
             Assert.Null(error);
             Assert.Equal(expectedDegrees * Math.PI / 180.0, radians, 9);
+        }
+
+        [Fact]
+        public void Angle_ExplicitRadianString_IsAccepted()
+        {
+            Assert.True(UnitParser.TryParseAngle(Parse("\"0.5 rad\""), out var radians, out var error));
+            Assert.Null(error);
+            Assert.Equal(0.5, radians, 9);
         }
 
         [Fact]

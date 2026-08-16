@@ -94,6 +94,7 @@ def main() -> int:
         parsed = call_tool("run_operation", params)
         if not parsed.get("success"):
             raise ToolError(f"run_operation '{operation}' failed: {parsed.get('error')}")
+        assert "boundArgs" in parsed, f"run_operation '{operation}' response missing 'boundArgs' (post-UAT B1)"
         return parsed
 
     def check(condition: bool, description: str) -> None:
@@ -138,10 +139,31 @@ def main() -> int:
         run_operation("insert_sketch", {}, doc_title)
 
         # --- 3. two concentric circles -> washer profile ----------------------
-        run_operation("create_circle_by_radius",
-                       {"centerX": 0, "centerY": 0, "radius": f"{OUTER_RADIUS_MM} mm"}, doc_title)
-        run_operation("create_circle_by_radius",
-                       {"centerX": 0, "centerY": 0, "radius": f"{INNER_RADIUS_MM} mm"}, doc_title)
+        # centerX/centerY are omitted (not "0", a bare number) — post-UAT B1,
+        # a bare number for a length/angle param is refused even when it is
+        # zero, so the recipe's own SI-native default (0) is used instead.
+        outer = run_operation("create_circle_by_radius", {"radius": f"{OUTER_RADIUS_MM} mm"}, doc_title)
+        check(abs(outer["boundArgs"]["radius"] - OUTER_RADIUS_MM / 1000) < 1e-9,
+              f"boundArgs echoes the SI radius actually sent to COM ({outer['boundArgs']['radius']})")
+        run_operation("create_circle_by_radius", {"radius": f"{INNER_RADIUS_MM} mm"}, doc_title)
+
+        # --- 3b. B1 regression: a bare number for a length param must be refused ---
+        bad = call_tool("run_operation", {
+            "operation": "create_circle_by_radius",
+            "args": {"radius": 5},  # bare number, no unit — must be refused, not silently 5 meters
+            "documentName": doc_title,
+        })
+        check(bad.get("success") is False, "bare-number length arg is refused, not silently treated as meters")
+        check("unit" in (bad.get("error") or "").lower(), f"refusal names the missing unit (error: {bad.get('error')})")
+
+        # --- 3c. H3 regression: an unknown argument name must be refused -----------
+        typo = call_tool("run_operation", {
+            "operation": "create_circle_by_radius",
+            "args": {"radius": "5 mm", "raduis": "5 mm"},  # typo'd duplicate key
+            "documentName": doc_title,
+        })
+        check(typo.get("success") is False, "unknown argument name is refused, not silently ignored")
+        check("raduis" in (typo.get("error") or ""), f"refusal names the unknown key (error: {typo.get('error')})")
 
         # --- 4. exit sketch, select it, extrude --------------------------------
         run_operation("exit_sketch", {}, doc_title)

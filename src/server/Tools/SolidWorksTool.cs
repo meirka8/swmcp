@@ -38,7 +38,7 @@ namespace swmcp.server.Tools
             {
                 return new { documents = _documents.ListOpenDocuments() };
             }
-            catch (SwNotRunningException ex)
+            catch (SwBridgeException ex)
             {
                 return new { error = ex.Message };
             }
@@ -47,7 +47,8 @@ namespace swmcp.server.Tools
         [McpServerTool, Description(
             "Gets information about an open SolidWorks part: path, title, mass, bounding box, and the " +
             "feature tree with per-feature properties for known feature types. Specify documentName " +
-            "(title, file name, or path) when more than one document is open.")]
+            "(title, file name, or path) when more than one document is open. A documentName matching " +
+            "more than one open document is refused rather than guessed.")]
         public object GetPartInfo(
             [Description("Which open document to inspect; may be omitted when exactly one document is open.")]
             string? documentName = null)
@@ -81,8 +82,12 @@ namespace swmcp.server.Tools
                     partInfo.BoundingBox,
                 };
             }
-            catch (SwNotRunningException ex)
+            catch (SwBridgeException ex)
             {
+                // Covers SwNotRunningException (SolidWorks closed) and, since
+                // SwBridge 0.5.0, the SwBridgeException DocumentManager.Resolve
+                // throws when documentName is ambiguous — that used to escape
+                // as an unhandled exception here.
                 return new { error = ex.Message };
             }
         }
@@ -145,7 +150,16 @@ namespace swmcp.server.Tools
             return null;
         }
 
-        private string DescribeOpenDocuments() =>
-            string.Join(", ", _documents.ListOpenDocuments().Select(d => $"{d.Title} ({d.Type})"));
+        private string DescribeOpenDocuments()
+        {
+            try
+            {
+                return string.Join(", ", _documents.ListOpenDocuments().Select(d => $"{d.Title} ({d.Type})"));
+            }
+            catch (SwBridgeException ex)
+            {
+                return $"(could not list open documents: {ex.Message})";
+            }
+        }
     }
 }

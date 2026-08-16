@@ -85,7 +85,12 @@ namespace swmcp.server.Models
     /// One post-condition (ADR 0002). Closed v1 vocabulary: <c>returnNotNull</c>,
     /// <c>returnTrue</c>, <c>featureCountIncreased</c> (By, default 1),
     /// <c>sketchSegmentCountIncreased</c> (By, default 1), <c>sketchModeIs</c>
-    /// (Value), <c>noNewRebuildErrors</c>.
+    /// (Value), <c>noNewRebuildErrors</c>, and <c>returnEquals</c> (Expected —
+    /// added post-UAT B5: several SolidWorks write APIs return a status code
+    /// rather than a bool/object, e.g. <c>IModelDoc2.SaveAs3</c> returns
+    /// <c>swFileSaveError_e</c> where 0 means success; the prior closed
+    /// vocabulary had no way to express "expect 0" and reported a successful
+    /// save as a verification failure).
     /// </summary>
     public sealed class VerifyCheck
     {
@@ -97,6 +102,11 @@ namespace swmcp.server.Models
 
         [JsonPropertyName("value")]
         public bool? Value { get; set; }
+
+        /// <summary>The constant the invocation's raw return value must equal, for <c>returnEquals</c>.</summary>
+        [JsonPropertyName("expected")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public JsonElement? Expected { get; set; }
     }
 
     /// <summary>

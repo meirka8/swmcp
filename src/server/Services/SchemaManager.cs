@@ -11,7 +11,17 @@ namespace swmcp.server.Services
     public class SchemaManager
     {
         private readonly string _filePath;
-        private Dictionary<string, List<PropertySpec>> _schemas =
+
+        // M3: _schemas is read from a request thread (get_part_info) but also,
+        // via GetSchema passed as a callback, from the SwDispatcher's own STA
+        // thread inside ModelInspector.GetFeatures — while RegisterFeatureSchema
+        // can write from a different request thread concurrently (the MCP SDK
+        // does not guarantee serial handler execution). A copy-on-write swap
+        // under a lock (never an in-place '_schemas[featureType] = specs')
+        // means every reader sees a complete, un-torn dictionary; 'volatile'
+        // ensures a reader on another thread observes a fresh swap promptly.
+        private readonly object _writeLock = new();
+        private volatile Dictionary<string, List<PropertySpec>> _schemas =
             new(StringComparer.OrdinalIgnoreCase);
 
         public SchemaManager()
@@ -47,8 +57,15 @@ namespace swmcp.server.Services
 
         public void RegisterSchema(string featureType, List<PropertySpec> specs)
         {
-            _schemas[featureType] = specs;
-            SaveSchemas();
+            lock (_writeLock)
+            {
+                var next = new Dictionary<string, List<PropertySpec>>(_schemas, StringComparer.OrdinalIgnoreCase)
+                {
+                    [featureType] = specs,
+                };
+                SaveSchemas(next);
+                _schemas = next; // atomic reference swap; readers see old or new, never a torn dictionary
+            }
         }
 
         private void LoadSchemas()
@@ -131,12 +148,12 @@ namespace swmcp.server.Services
             _ => null,
         };
 
-        private void SaveSchemas()
+        private void SaveSchemas(Dictionary<string, List<PropertySpec>> schemas)
         {
             try
             {
                 var serializable = new Dictionary<string, List<object>>();
-                foreach (var (featureType, specs) in _schemas)
+                foreach (var (featureType, specs) in schemas)
                 {
                     var entries = new List<object>();
                     foreach (var spec in specs)
