@@ -317,7 +317,7 @@
     },
     {
       "name": "select_by_ray",
-      "summary": "Selects the entity hit by a model-space ray (IModelDocExtension.SelectByRay) — view-independent, unlike select_by_id's coordinate hint, and the reliable way to pick an edge or face. Point (x,y,z) is the ray origin, (rx,ry,rz) the direction (a plain direction vector, not a unit-carrying length — component magnitudes only need to be consistent with each other, not any particular unit), radius the pick tolerance. type is a swSelectType_e integer (1=EDGE, 2=FACE, 3=VERTEX).",
+      "summary": "Selects the entity hit by a model-space ray (IModelDocExtension.SelectByRay) — view-independent, unlike select_by_id's coordinate hint, and the reliable way to pick an edge or face. Point (x,y,z) is the ray origin, (rx,ry,rz) the direction (a plain direction vector, not a unit-carrying length — component magnitudes only need to be consistent with each other, not any particular unit), radius the pick tolerance. type is a swSelectType_e integer (1=EDGE, 2=FACE, 3=VERTEX). AIMING, empirically verified across two UAT passes: the pick is NOT a fixed-radius model-space tolerance despite how 'radius' reads — it behaves like a cone that widens with range from the ray origin to the target, so the SAME radius that picks correctly from close range can pick a neighboring edge/face from farther away (confirmed: origin 10mm from the target picked correctly every time; origin 30mm away picked a completely different, unrelated edge, same radius, same direction). Aim SIDE-ON at the MID-LENGTH of the target edge, from CLOSE range (a few mm to a couple cm), not from far away. Never aim collinearly DOWN an edge's own length — a ray traveling parallel to the edge terminates at whichever vertex it reaches first, and most edges share that vertex with two or three others, which is the ambiguity that produces a wrong pick. There is no error or warning when a ray picks the 'wrong but real' neighboring entity instead of missing outright — success is reported either way — so a slightly-off aim is a genuinely silent failure mode; check documentState.selectedEntities (every run_operation/run_operations response includes it once something is selected) to confirm the descriptor (edge length, midpoint) matches what you intended before trusting the result.",
       "scope": "document",
       "target": "Extension",
       "kind": "method",
@@ -326,13 +326,13 @@
         { "check": "documentType", "value": "Part" }
       ],
       "params": [
-        { "name": "x", "type": "length", "required": true, "description": "Ray origin X." },
+        { "name": "x", "type": "length", "required": true, "description": "Ray origin X. Keep this close to the target entity (a few mm to a couple cm) — aiming from far away lets the pick cone drift onto a neighboring edge/face even with a small radius." },
         { "name": "y", "type": "length", "required": true, "description": "Ray origin Y." },
         { "name": "z", "type": "length", "required": true, "description": "Ray origin Z." },
-        { "name": "rx", "type": "double", "default": 0, "description": "Ray direction X component (unitless)." },
+        { "name": "rx", "type": "double", "default": 0, "description": "Ray direction X component (unitless). Aim side-on at the target edge/face's mid-length, not collinear along its own length — a collinear ray terminates at a shared vertex, which is ambiguous between the edges meeting there." },
         { "name": "ry", "type": "double", "default": 0, "description": "Ray direction Y component (unitless)." },
-        { "name": "rz", "type": "double", "default": -1, "description": "Ray direction Z component (unitless); default points -Z, i.e. straight down onto a part sketched on Front/Top." },
-        { "name": "radius", "type": "length", "default": 0.0005, "description": "Pick tolerance around the ray." },
+        { "name": "rz", "type": "double", "default": -1, "description": "Ray direction Z component (unitless); default points -Z, i.e. straight down onto a part sketched on Front/Top. For a vertical edge, a ray straight down whose origin sits directly above that edge's column is exactly the side-on-at-mid-length aim this recipe needs." },
+        { "name": "radius", "type": "length", "default": 0.0005, "description": "Pick tolerance around the ray — but see the summary: its effective width scales with range from the origin to the target, so this alone does not make a long-range aim reliable." },
         { "name": "type", "type": "enum", "enum": "swSelectType_e", "default": 1, "description": "1 = EDGE, 2 = FACE, 3 = VERTEX." },
         { "name": "append", "type": "bool", "default": false, "description": "true to add to the current selection instead of replacing it." },
         { "name": "mark", "type": "int", "default": 0 },
@@ -343,7 +343,7 @@
         { "check": "returnTrue" }
       ],
       "source": "seed",
-      "verifiedOn": "Promoted from docs/uat-registered-operations.json — UAT-verified live: picked the correct 6 mm vertical edge at both the front and back corner of a plate where select_by_id picked the wrong edge or refused entirely (docs/uat-ladder-report.md B3/rung2f). Signature matches IModelDocExtension.SelectByRay(11 params) confirmed independently against SolidWorks.Interop.sldworks."
+      "verifiedOn": "Promoted from docs/uat-registered-operations.json — UAT-verified live across two passes: picked the correct 6 mm vertical edge at both the front and back corner of a plate where select_by_id picked the wrong edge or refused entirely (docs/uat-ladder-report.md B3/rung2f), and, on re-verdict, a 5-aim x 2-topology matrix confirmed the topology-change failure mode is fully gone but surfaced the distance-dependent aiming behavior documented above (docs/uat-ladder-report.md RE-VERDICT gap #2: same radius, same direction, origin at 10mm picked correctly every time, origin at 30mm picked a 40mm neighbor edge every time). Signature matches IModelDocExtension.SelectByRay(11 params) confirmed independently against SolidWorks.Interop.sldworks."
     },
     {
       "name": "set_material",

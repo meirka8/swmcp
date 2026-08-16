@@ -431,11 +431,16 @@ namespace swmcp.server.Services
                     return warnings;
                 }
 
-                var members = ComTypeInspector.DescribeMembers(pathResult.Value);
-                if (members.Count == 0)
-                {
-                    members = ComTypeInspector.DescribeMembersViaInterop(pathResult.Value);
-                }
+                // Gap #3 (UAT re-verdict): DescribeMembers-then-fallback used to
+                // report a document root's ~175-member ITypeInfo surface and
+                // stop there (non-empty, so the interop fallback never ran),
+                // missing IModelDoc2 members like EditRebuild3/SaveAs3/
+                // EditUndo2/ClearSelection2 entirely — producing a false
+                // "member not found" warning for four of this server's own
+                // seed operations every time one was (re-)registered.
+                // DescribeAllMembers unions both discovery paths instead of
+                // picking whichever answers first.
+                var members = ComTypeInspector.DescribeAllMembers(pathResult.Value);
 
                 var match = members.FirstOrDefault(m => string.Equals(m.Name, recipe.Member, StringComparison.OrdinalIgnoreCase));
                 if (match == null)

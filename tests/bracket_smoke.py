@@ -200,6 +200,35 @@ def main() -> int:
         }, doc_title)
         check(ray["documentState"]["selectionCount"] == 1, "select_by_ray selected exactly one entity")
 
+        # UAT re-verdict gap #1 ("the last silent-wrongness path"): the
+        # response's documentState.selectedEntities must name WHAT was
+        # selected, not just how many — enough to confirm (without a
+        # hand-computed mass check) that the ray hit the intended 6mm edge
+        # and not some neighbor.
+        selected = ray["documentState"].get("selectedEntities")
+        check(selected is not None and len(selected) == 1,
+              f"select_by_ray's documentState.selectedEntities has exactly one entry (got {selected})")
+        if selected:
+            entity = selected[0]
+            check(entity.get("type") == "swSelEDGES", f"selected entity type is swSelEDGES (got {entity.get('type')})")
+            descriptor = entity.get("descriptor") or ""
+            check("edge" in descriptor.lower() and "length=" in descriptor,
+                  f"selected entity descriptor plausibly identifies an edge (got '{descriptor}')")
+            # The plate is 6mm thick, so the vertical corner edge is 6mm long —
+            # confirms this is genuinely the intended edge, not a 40/80mm neighbor
+            # (a mis-aimed ray, per the seed's own aiming guidance, silently
+            # picks one of those instead with no error).
+            check("length=0.006" in descriptor, f"descriptor's length matches the 6mm vertical edge (got '{descriptor}')")
+
+        # UAT re-verdict gap #5: a read-only state check mid-plan, with no
+        # side effects — confirms selection/sketch state without writing.
+        state = call_tool("get_document_state", {"documentName": doc_title})
+        check(state.get("inSketchMode") is False, "get_document_state: not in sketch mode mid-flow")
+        check(state.get("selectionCount") == 1, "get_document_state: selectionCount matches the ray pick")
+        check(state.get("selectedEntities") == selected,
+              "get_document_state's selectedEntities matches what select_by_ray's own documentState reported")
+        check("needsRebuild" in state, "get_document_state: needsRebuild present")
+
         # --- 5. fillet that edge --------------------------------------------------
         run_operation("fillet_constant_radius", {"radius": f"{FILLET_RADIUS_MM} mm"}, doc_title)
         run_operation("rebuild", {}, doc_title)
@@ -217,8 +246,24 @@ def main() -> int:
             check(radius_value is not None and abs(radius_value - FILLET_RADIUS_MM / 1000) < 1e-6,
                   f"fillet DefaultRadius ~{FILLET_RADIUS_MM}mm (got {radius_value})")
 
+        # UAT re-verdict gap #4: default feature list is folder-free; the same
+        # document with includeFolderFeatures:true shows (many) more entries.
+        default_feature_count = len(info["features"])
+        folder_names = {"CommentsFolder", "FavoriteFolder", "HistoryFolder", "MaterialFolder", "NotesAreaFtrFolder"}
+        check(not any(f["typeName"] in folder_names for f in info["features"]),
+              "get_part_info default response contains no folder-noise feature-tree entries")
+        info_with_folders = call_tool("get_part_info", {"documentName": doc_title, "includeFolderFeatures": True})
+        check(len(info_with_folders["features"]) > default_feature_count,
+              f"includeFolderFeatures:true returns more entries ({len(info_with_folders['features'])} vs {default_feature_count})")
+        check(any(f["typeName"] in folder_names for f in info_with_folders["features"]),
+              "includeFolderFeatures:true response contains at least one folder-type entry")
+
         # --- 6. material ------------------------------------------------------------
         mass_before = info["mass"]
+        check(info.get("material") is None, f"material is null before set_material (got {info.get('material')})")
+        check(info.get("density") is not None and abs(info["density"] - 1000.0) < 1,
+              f"density defaults to water's 1000 kg/m^3 before set_material (got {info.get('density')})")
+
         run_operation("set_material", {"name": "6061 Alloy", "database": "SOLIDWORKS Materials"}, doc_title)
         run_operation("rebuild", {}, doc_title)
         info = call_tool("get_part_info", {"documentName": doc_title})
@@ -228,6 +273,12 @@ def main() -> int:
         # of 1000 kg/m^3 water) — the mass should have scaled up by ~2.7x.
         check(abs(mass_after / mass_before - 2.7) < 0.05,
               f"mass scaled by ~2.7x (6061 density / water density), got {mass_after / mass_before:.3f}x")
+        # UAT re-verdict gap #4: get_part_info now confirms what set_material
+        # actually applied, instead of requiring an independently hand-computed
+        # mass to infer it.
+        check(info.get("material") == "6061 Alloy", f"get_part_info reports material '6061 Alloy' (got {info.get('material')})")
+        check(info.get("density") is not None and abs(info["density"] - 2700.0) < 1,
+              f"get_part_info reports density 2700 kg/m^3 for 6061 (got {info.get('density')})")
 
         # --- 7. save_as, verified via returnEquals -------------------------------
         if SAVE_PATH.exists():

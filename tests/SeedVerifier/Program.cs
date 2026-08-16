@@ -35,6 +35,8 @@ internal static class Program
                 return Zoo.CloseDoc(args[1]);
             case "inspect":
                 return Zoo.InspectOpenDoc(args.Length > 1 ? args[1] : "FeatureZoo", Seed(2));
+            case "material":
+                return MaterialProbe.Run(args[1]);
             default:
                 Console.WriteLine(
                     "modes:\n" +

@@ -57,13 +57,29 @@ Retrieves detailed information about an open SolidWorks part document.
 
 - **Inputs**:
     - `documentName` (string, optional): Which open document to inspect — matches title, file name, or full path, case-insensitively. May be omitted when exactly one document is open; otherwise the error lists the open documents.
+    - `includeFolderFeatures` (bool, default `false`): When false, feature-tree entries that are permanent tree plumbing (folders, the material folder, notes, lights — see "Feature-tree noise filtering" below) are omitted. Set `true` to see the unfiltered tree exactly as `IFeatureManager.GetFeatures` reports it.
 - **Returns**: A JSON object containing:
     - `path` / `title`: Identity of the document.
     - `mass`: Mass of the part (kg).
-    - `features`: The feature tree. Each entry has `name`, `typeName` (from `IFeature.GetTypeName2()`), and `known`:
+    - `material`: The applied material's display name (e.g. `"6061 Alloy"`), or `null`/omitted if none is assigned.
+    - `density`: The part's density in kg/m³, always present when readable — an unassigned part reports `1000` (water), which is itself the signal that no real material is set; `material` being `null` is the definitive check.
+    - `features`: The feature tree, folder-filtered by default (see `includeFolderFeatures`). Each entry has `name`, `typeName` (from `IFeature.GetTypeName2()`), and `known`:
         - If the feature type is **known** (registered in the schema store), `data` contains the values read per its schema.
         - Otherwise `known` is `false` and there is no `data`.
     - `boundingBox`: `min`/`max` points of the part's bounding box (meters).
+
+##### Feature-tree noise filtering
+
+A typical single-feature part reports 25 feature-tree entries, 19 of which are permanent scaffolding present on *every* part regardless of what was modeled: `Comments`, `Favorites`, `History`, `Selection Sets`, `Sensors`, `Design Binder`, `Annotations`, `Surface Bodies`, `Solid Bodies`, `Lights and Cameras`, `Markups`, `Equations`, the material folder, two `Notes`/`Notes1___EndTag___` entries, and four lights. `get_part_info` omits these by default (`src/server/Services/FeatureTreeFilter.cs` — the exact 16 type names are observed data, not a naming-convention guess, since some of them, like `DetailCabinet` and `AmbientLight`/`DirectionLight`, don't share a common suffix with the rest). Set `includeFolderFeatures: true` for the raw tree.
+
+#### `get_document_state`
+Read-only, passive snapshot of a document's live state — no write, and critically **no forced rebuild** (unlike the `rebuild` operation or the `noNewRebuildErrors` verify check). Use this to discover a dangling sketch or stale selection after reconnecting to a session you did not start (e.g. after a client crash), or mid-plan to confirm ambient state before the next `run_operation` step, without having to attempt a write first.
+
+- **Inputs**: `documentName` (string, **required** — no active-document fallback, matching every other document-scoped tool's write-side strictness even though this one only reads).
+- **Returns**: `{ documentName, inSketchMode, activeSketch, featureCount, selectionCount, selectedEntities, needsRebuild }`.
+    - `activeSketch`: the active sketch's name (e.g. `"Sketch1"`) when `inSketchMode` is true and the name happens to be cheaply readable; `null` otherwise. Best-effort — never a reason to fail the call.
+    - `selectedEntities`: see "Selection identity" below; `null` when `selectionCount` is 0.
+    - `needsRebuild`: whether SolidWorks has pending changes not yet rebuilt (`IModelDocExtension.NeedsRebuild2`) — a passive read, unlike the `rebuild` operation which forces one.
 
 #### `register_feature_schema`
 Teaches the server how to extract data for a feature type. The registration persists across sessions, so the set of understood feature types grows over time — the shipped `known_features.json` is only a seed.
@@ -90,6 +106,20 @@ Seven tools cover **every** SolidWorks write capability, present and future — 
 
 Every `run_operation`/`run_operations` response echoes **`boundArgs`**: the exact, final SI values actually sent to COM after unit parsing and defaulting. Check it whenever geometry looks wrong — it is the audit trail for a bad binding, and it is present on both success and (whenever binding completed) failure responses.
 
+### Selection identity: `documentState.selectedEntities`
+
+A selection-driven write (`fillet_constant_radius`, `cut_extrude`, any feature that consumes a pre-selection) can succeed against the *wrong* edge or face with **no COM error at all** — `selectionCount` alone only ever says *how many* things are selected, never *what*. This was the last silent-wrongness path in the write surface (a live UAT filleted the wrong corner of a bracket and the only reason it was caught was an independently hand-computed mass). Every `documentState` — on `run_operation`/`run_operations` responses and on `get_document_state` — now includes:
+
+- **`selectedEntities`**: an array of `{ type, descriptor }`, one per currently-selected entity, in selection order. `type` is the `swSelectType_e` name (e.g. `"swSelEDGES"`, `"swSelFACES"`). `descriptor` is a best-effort, human-meaningful identity — enough to tell *which* edge/face this is from a transcript alone:
+    - **Edges**: curve kind plus chord length and chord midpoint, e.g. `"Line edge, length=0.006 m, midpoint=(0.04, 0.02, 0.003) m"`. Exact for a straight edge (the common case for fillets/chamfers); a chord approximation for a curved one.
+    - **Faces**: surface kind plus area and an approximate (bounding-box-midpoint) center, e.g. `"Planar face, area=0.0008 m^2, center~(0.04, 0, 0.003) m"`.
+    - **Vertices**: the point.
+    - **Named entities** (features, planes, sketches): the name, quoted.
+    - Anything else: `type` only, `descriptor` null — never a reason to fail the read.
+- **Null**, not an empty array, when `selectionCount` is 0 — the extra COM read only happens when there is something to describe, keeping every other `documentState` snapshot as cheap as before.
+
+Check `documentState.selectedEntities` after any `select_by_id`/`select_by_ray` call and before the operation that consumes the selection, especially for edges — see `select_by_ray`'s own aiming guidance below, which this field is what actually lets you verify.
+
 ### `list_operations`
 Lists every registered operation: name, one-line summary, scope, and provenance (`seed` = shipped with the server, `registered` = added at runtime via `register_operation`). Cheap — call this first.
 
@@ -112,7 +142,7 @@ Executes one operation recipe against one document (or the application, for `new
 - **Returns**: `{ success, error, return, documentState, boundArgs }`.
     - `success`: `true` only when the invocation completed **and** its declared `verify` post-conditions held (ADR 0002). SolidWorks write APIs frequently report failure by returning `Nothing`/`False` rather than throwing, so a step can be `success: false` with `error: null`-looking COM behavior but a failed verification — the `error` field always explains which.
     - `return`: the operation's declared return shape (see "Return shapes" below), or `null` for `void`. A recipe whose declared `returns.type` cannot describe what the call actually returned is itself a **failure** (`success: false`) rather than a raw/unconvertible value leaking into the response.
-    - `documentState`: `{ documentName, inSketchMode, featureCount, selectionCount }` — cheap diagnostic snapshot taken right after the call, useful when `success` is `false`.
+    - `documentState`: `{ documentName, inSketchMode, featureCount, selectionCount, selectedEntities }` — cheap diagnostic snapshot taken right after the call, useful when `success` is `false`. See "Selection identity" below for `selectedEntities`.
     - `boundArgs`: the final, named SI values actually bound to the COM call — see "Unit policy" above. Null only when the call failed before binding completed (e.g. missing `documentName`).
 - A **refused precondition** (`requires` not satisfied) is reported the same way — `success: false`, `error` names which operation to call first (e.g. *"Precondition 'inSketchMode' failed: no active sketch. Call 'insert_sketch' first."*). Preconditions are never auto-satisfied.
 - SolidWorks being unreachable, or a single call taking longer than 120 seconds (e.g. a modal SolidWorks dialog is blocking it — check the SolidWorks window), is reported as `{ success: false, error }`, never an unhandled JSON-RPC error.
@@ -136,7 +166,7 @@ Validates and persists a new operation recipe — the entry point for adding Sol
 - **Inputs**: `recipe` (object, required) — the full recipe, in the shape `describe_operation` returns (see "Recipe format").
 - **Behavior**:
     1. Validates recipe shape: known `scope`/`kind`/param-`type`/`requires`-check/`verify`-check vocabulary, unique param names, non-empty `name`/`member`, application-scoped recipes cannot declare `requires` (every v1 precondition is document-scoped), a `selectionType` requires check needs `mark`, a `returnEquals` verify check needs `expected`. A shape error is rejected outright (`{ error }`, nothing persisted).
-    2. When SolidWorks is reachable, best-effort checks the `target` path and `member` name/parameter-count against the live COM type library (`describe_com_members`'s same discovery mechanism). This only ever **warns**, never rejects — dispatch aliases and optional parameters make the type library an imperfect oracle, and rejecting here would undermine the whole point of runtime enrichment.
+    2. When SolidWorks is reachable, best-effort checks the `target` path and `member` name/parameter-count against the live COM type library, using the same unioned discovery `describe_com_members` uses (`ComTypeInspector.DescribeAllMembers`) — this is what makes registering a recipe against a document-root member like `EditRebuild3` warning-free instead of producing a false *"member not found"*. This only ever **warns**, never rejects — dispatch aliases and optional parameters make the type library an imperfect oracle, and rejecting here would undermine the whole point of runtime enrichment.
     3. Persists atomically to `%LOCALAPPDATA%\swmcp\known_operations.json` with `source: "registered"`. A name matching a seed operation shadows it from then on (a way to correct a seed recipe without a server release, and reversible via `unregister_operation`).
 - **Returns**: `{ registered: name, warnings: [...] }` on success (an empty `verify` list is always one of the warnings — see ADR 0002), or `{ error, warnings }` on a shape-validation failure. If the on-disk store was found corrupted and quarantined earlier this session, that is also surfaced as a warning here (see "Registered-operation persistence" below).
 - **Recommended loop**: `describe_com_members` to find real member names/signatures on the target you want to drive → cross-reference SolidWorks API documentation for parameter meaning/units/enum values → `register_operation`.
@@ -159,7 +189,7 @@ Read-only discovery of the members a live SolidWorks COM object actually exposes
     - `nameFilter` (string, optional): case-insensitive substring filter on member name, applied before paging — e.g. `"Ray"` to jump straight to `SelectByRay` instead of paging through hundreds of members.
     - `offset` (int, default 0): zero-based index into the (optionally filtered) member list to start returning from.
     - `limit` (int, default 200): maximum members to return in this call.
-- **Returns**: `{ target, discoveredVia, nameFilter, totalCount, offset, returned, hasMore, members: [{ name, kind, paramCount, returnType }] }`. `discoveredVia` is `"ITypeInfo"`, `"interop-assembly probe"` (the fallback used when an object publishes no type information of its own — most internal SolidWorks objects), or `"featureDefinition"` (the `featureName` path). **Results are never silently truncated**: `totalCount` is always the true member count (after `nameFilter`, before paging), and `returned`/`offset`/`hasMore` say exactly what page you are looking at — use `nameFilter` or increase `limit`/`offset` to see more. (An earlier version capped at 300 with no filter and no way to page further, which is how `Extension.SelectByRay` — the fix for `select_by_id`'s edge-picking unreliability — went undiscovered during UAT; see `docs/uat-ladder-report.md` B4.)
+- **Returns**: `{ target, discoveredVia, nameFilter, totalCount, offset, returned, hasMore, members: [{ name, kind, paramCount, returnType }] }`. For a `targetPath` lookup, `discoveredVia` is `"ITypeInfo+interop (union)"` — every dotted-path target is discovered by unioning **every** mechanism SolidWorks exposes (`ComTypeInspector.DescribeAllMembers`) rather than stopping at whichever answers first. This closed a real gap: a document root (`targetPath: ""`) answers a narrower ITypeInfo-only probe with ~175 members and is missing `EditRebuild3`, `SaveAs3`, `EditUndo2` and `ClearSelection2` — the members behind four of this server's own seed operations (`rebuild`, `save_as`, `undo`, `clear_selection`) — entirely; the union reports 947 members on the same root and finds all four. For a `featureName` lookup, `discoveredVia` is `"featureDefinition"`. **Results are never silently truncated**: `totalCount` is always the true member count (after `nameFilter`, before paging), and `returned`/`offset`/`hasMore` say exactly what page you are looking at — this matters even more now that a document root can report 900+ members. Use `nameFilter` or increase `limit`/`offset` to see more. (An earlier version capped at 300 with no filter and no way to page further, which is how `Extension.SelectByRay` — the fix for `select_by_id`'s edge-picking unreliability — went undiscovered during UAT; see `docs/uat-ladder-report.md` B4.)
 
 ## Recipe format
 
@@ -217,7 +247,7 @@ The original washer chain (new part → sketch → extrude), plus six recipes pr
 |---|---|---|
 | `new_part` | application | Creates a new part from a template (or SolidWorks' default) and returns its identity. |
 | `select_by_id` | document | Selects one entity by name/type (`SelectByID2`) — populates the selection list other operations consume. **Not reliable for EDGE** after a topology change (view-dependent coordinate hint); prefer `select_by_ray`. |
-| `select_by_ray` | document | Selects the entity hit by a model-space ray (`SelectByRay`) — view-independent, the reliable way to pick an edge or face. |
+| `select_by_ray` | document | Selects the entity hit by a model-space ray (`SelectByRay`) — view-independent, the reliable way to pick an edge or face. **Aim side-on at the target's mid-length, from close range**; the pick tolerance is distance-dependent (see below) and a mis-aim silently picks a neighboring entity with no error. |
 | `clear_selection` | document | Clears the selection list. |
 | `insert_sketch` | document | Starts editing a new sketch on the selected plane/face (also used to exit one — see `exit_sketch`). |
 | `exit_sketch` | document | Exits the active sketch (same COM member as `insert_sketch`; different precondition/postcondition). |
@@ -231,6 +261,15 @@ The original washer chain (new part → sketch → extrude), plus six recipes pr
 | `save_as` | document | Saves the document to an absolute path (`SaveAs3`); verified via `returnEquals` against the status-code 0. |
 | `rebuild` | document | Forces a rebuild; reports success. |
 | `undo` | document | Undoes the last N edits — never triggered automatically; call it deliberately after a failed plan. `EditUndo2` is void (no status code), so this is verified via `noNewRebuildErrors` rather than a return-value check; compare `documentState` across steps to confirm what changed. |
+
+### `select_by_ray` aiming guidance
+
+Empirically derived across two UAT passes (`docs/uat-ladder-report.md`, RE-VERDICT gap #2) and reproduced in `tests/bracket_smoke.py`:
+
+- **The pick tolerance (`radius`) is distance-dependent**, not a fixed model-space cylinder despite how it reads. The same `radius` and direction that pick correctly from 10mm away can pick a completely different, unrelated neighboring edge from 30mm away — confirmed live: origin 10mm from the target picked correctly every time across a 5-aim matrix; origin 30mm away picked a 40mm neighbor edge every time, same radius.
+- **Aim side-on at the target's mid-length, from close range** (a few mm to a couple cm).
+- **Never aim collinearly down an edge's own length.** A ray traveling parallel to the edge terminates at whichever vertex it reaches first — most edges share that vertex with two or three others, which is the ambiguity that produces a wrong pick.
+- **There is no error when this goes wrong.** A mis-aimed ray reports `success: true` just like a correct one; the only way to catch it is `documentState.selectedEntities` (see "Selection identity" above) — check that the descriptor (edge length, midpoint) matches what you intended before trusting the result.
 
 ### Worked example: drawing a washer
 
@@ -273,7 +312,7 @@ The same eight document-scoped steps (everything after `new_part`) can also run 
 
 ### Worked example: a filleted bracket with a hole and material (the promoted seed recipes)
 
-`tests/bracket_smoke.py` builds a plate (`create_corner_rectangle` + `extrude_boss`), cuts a through hole (`cut_extrude`), picks a specific vertical edge reliably (`select_by_ray`, not `select_by_id`), fillets it (`fillet_constant_radius`), assigns 6061 aluminum (`set_material`), and saves to a temp path (`save_as`, verified via `returnEquals`) — using **only seed recipes**, zero `register_operation` calls. It asserts the fillet actually landed by checking `get_part_info` for a `Fillet`-type feature and its `DefaultRadius`, and that the mass scaled by the material's density ratio. Run it (`python tests/bracket_smoke.py`) as a second, independent proof the seed works out of the box beyond the washer.
+`tests/bracket_smoke.py` builds a plate (`create_corner_rectangle` + `extrude_boss`), cuts a through hole (`cut_extrude`), picks a specific vertical edge reliably (`select_by_ray`, not `select_by_id`), fillets it (`fillet_constant_radius`), assigns 6061 aluminum (`set_material`), and saves to a temp path (`save_as`, verified via `returnEquals`) — using **only seed recipes**, zero `register_operation` calls. It checks `documentState.selectedEntities` right after the ray pick (confirming the descriptor names a 6mm edge, not a 40/80mm neighbor, before trusting the fillet that follows), calls `get_document_state` read-only mid-plan, and asserts `get_part_info` shows a `Fillet`-type feature with the right `DefaultRadius`, `material: "6061 Alloy"`, `density: 2700`, a folder-free feature list by default, and a longer list with `includeFolderFeatures: true`. Run it (`python tests/bracket_smoke.py`) as a second, independent proof the seed works out of the box beyond the washer.
 
 ## Schema store
 
@@ -291,7 +330,8 @@ The project is built using C# and .NET 8.0.
 
 - **`src/server/Program.cs`**: Entry point; registers SwBridge's `SwConnection` (lazy attach + auto re-attach), `DocumentManager`, `SchemaManager`, `OperationManager`, `OperationRunner`, and the MCP server over STDIO.
 - **`src/server/Services/SchemaManager.cs`**: The dynamic feature-property schema registry — `featureType → property specs`. Loads/saves `%LOCALAPPDATA%\swmcp\known_features.json`.
-- **`src/server/Tools/SolidWorksTool.cs`**: The read-path MCP tools; maps SwBridge results (feature `Properties`) to the tool contract (`known`/`data`).
+- **`src/server/Tools/SolidWorksTool.cs`**: The read-path MCP tools (`list_open_documents`, `get_part_info`, `get_document_state`, `register_feature_schema`); maps SwBridge results (feature `Properties`) to the tool contract (`known`/`data`). Reads material via an early-bound `PartDoc` cast — the one place in this codebase that names an interop type directly, because `GetMaterialPropertyName2`'s `ByRef` output parameter is verified live to be uncallable through `ComPropertyReader`'s late-bound `Type.InvokeMember` (which needs a `ParameterModifier` array to marshal a COM `ByRef` argument, and SwBridge's reader does not use that overload) — density, having no `ByRef` parameter, reads late-bound exactly as expected.
+- **`src/server/Services/FeatureTreeFilter.cs`**: The `get_part_info` folder-noise filter — see "Feature-tree noise filtering" above.
 - **`src/server/Models/OperationRecipe.cs`**: The recipe model (`OperationRecipe`, `OperationParam`, `RequireCheck`, `VerifyCheck`, `ReturnsSpec`) — see "Recipe format" above.
 - **`src/server/Services/OperationManager.cs`**: The operation registry — loads/refreshes `known_operations.json`, persists registered recipes to `%LOCALAPPDATA%\swmcp\known_operations.json`, validates recipe shape, best-effort live-checks against the COM type library.
 - **`src/server/Services/OperationRunner.cs`**: Executes one recipe (or, via `RunBatch`, a whole `run_operations` plan in one dispatch call): target resolution, named-argument binding (unit parsing, type coercion, unknown-key rejection), precondition/postcondition evaluation, ownership-aware DTO conversion — all inside one SwBridge dispatcher call, with every SolidWorks-flavored exception (`SwBridgeException`/`COMException`/`InvalidComObjectException`) caught and turned into a structured failure rather than an unhandled exception.
@@ -300,4 +340,4 @@ The project is built using C# and .NET 8.0.
 - **`tests/swmcp.server.tests/`**: xUnit unit tests for the pure logic above (unit parsing/rejection, argument binding incl. unknown-key and `comNull` rejection, `returnEquals`, recipe JSON round-trip, atomic persistence/quarantine, `unregister_operation` semantics) — no SolidWorks required.
 - **`tests/washer_smoke.py`**: Live end-to-end test that draws a washer through the original seed operations and asserts the result via `get_part_info`.
 - **`tests/bracket_smoke.py`**: Live end-to-end test that builds a filleted, drilled, material-assigned, saved bracket through the promoted seed operations only (zero `register_operation` calls) — see the worked example above.
-- **SwBridge 0.5.0** (external, MIT): COM attachment, document resolution, generic feature reading by reflection, and the write-side mechanism — `SwDispatcher` (now message-pumping and timeout-bounded — a call that does not return within 120s throws `SwDispatchTimeoutException`, surfaced by every tool as `{success:false}`), `ComInvoker`, `ComPath` (now strictly property-get-only — a path segment naming a method fails to resolve rather than being silently invoked), `DocumentStateProbes`, `ResultConverters` (now `ownsReference`-aware, so converting a shared document handle never disconnects it for every other holder), `DocumentManager.NewPart`, `DocumentManager.Resolve` (now throws on an ambiguous match instead of silently picking the first), `ComTypeInspector`.
+- **SwBridge 0.6.0** (external, MIT): COM attachment, document resolution, generic feature reading by reflection, and the write-side mechanism — `SwDispatcher` (message-pumping and timeout-bounded — a call that does not return within 120s throws `SwDispatchTimeoutException`, surfaced by every tool as `{success:false}`), `ComInvoker`, `ComPath` (strictly property-get-only — a path segment naming a method fails to resolve rather than being silently invoked), `DocumentStateProbes`, `ResultConverters` (`ownsReference`-aware, so converting a shared document handle never disconnects it for every other holder), `DocumentManager.NewPart`, `DocumentManager.Resolve` (throws on an ambiguous match instead of silently picking the first), `ComTypeInspector.DescribeAllMembers` (unions the `ITypeInfo` and interop-assembly discovery paths — what `describe_com_members` and `register_operation`'s live check now use), and `SelectionInspector.GetSelection` (the mechanism behind `documentState.selectedEntities` and `get_document_state`'s `selectedEntities`).

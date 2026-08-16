@@ -5,8 +5,22 @@ using swmcp.server.Models;
 
 namespace swmcp.server.Services
 {
-    /// <summary>Cheap document-state snapshot attached to every result, for diagnosing a failure without a second round trip.</summary>
-    public sealed record DocumentStateSnapshot(string DocumentName, bool InSketchMode, int FeatureCount, int SelectionCount);
+    /// <summary>
+    /// Cheap document-state snapshot attached to every result, for diagnosing a
+    /// failure — or confirming a success — without a second round trip.
+    /// </summary>
+    /// <param name="SelectedEntities">
+    /// The identity of what is currently selected (post-UAT gap #1, "the last
+    /// silent-wrongness path"): a selection-driven write (a fillet, a chamfer)
+    /// can land on the wrong edge with no COM error and <see cref="SelectionCount"/>
+    /// alone cannot show it — this closes that gap by naming what was actually
+    /// selected (e.g. <c>"Line edge, length=0.006 m, midpoint=(0.05, 0.05, 0.01) m"</c>).
+    /// Null when <see cref="SelectionCount"/> is 0 — kept cheap: the extra COM
+    /// round trip only happens when there is something to describe.
+    /// </param>
+    public sealed record DocumentStateSnapshot(
+        string DocumentName, bool InSketchMode, int FeatureCount, int SelectionCount,
+        IReadOnlyList<SelectionInfo>? SelectedEntities);
 
     /// <summary>
     /// Result of running one operation: never throws for a SolidWorks-side
@@ -871,15 +885,27 @@ namespace swmcp.server.Services
 
             try
             {
+                var selectionCount = DocumentStateProbes.GetSelectionCount(doc.Model);
+
+                // Gap #1: only pay for SelectionInspector.GetSelection (which
+                // reads curve/surface/vertex geometry off every selected
+                // entity) when there is something selected to describe — kept
+                // cheap, per instruction, rather than an unconditional extra
+                // COM round trip on every snapshot.
+                IReadOnlyList<SelectionInfo>? selectedEntities = selectionCount > 0
+                    ? SelectionInspector.GetSelection(doc.Model)
+                    : null;
+
                 return new DocumentStateSnapshot(
                     doc.Info.Title,
                     DocumentStateProbes.IsInSketchMode(doc.Model),
                     DocumentStateProbes.GetFeatureCount(doc.Model),
-                    DocumentStateProbes.GetSelectionCount(doc.Model));
+                    selectionCount,
+                    selectedEntities);
             }
             catch (Exception ex) when (ex is SwBridgeException or COMException or InvalidComObjectException)
             {
-                return new DocumentStateSnapshot($"(unreadable: {ex.GetType().Name})", false, -1, -1);
+                return new DocumentStateSnapshot($"(unreadable: {ex.GetType().Name})", false, -1, -1, null);
             }
         }
 

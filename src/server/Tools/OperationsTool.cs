@@ -241,14 +241,18 @@ namespace swmcp.server.Tools
         [McpServerTool, Description(
             "Read-only discovery of the members a live SolidWorks COM object actually exposes — the enrichment loop's " +
             "eyes. Point it at a dotted target path from a document (e.g. 'FeatureManager', 'Extension.SelectionManager', " +
-            "'SketchManager') to see real method/property names and parameter counts before writing a register_operation " +
-            "recipe, instead of guessing. Pass featureName instead of targetPath to inspect a specific feature's " +
-            "definition object. Omit documentName to inspect application-level (ISldWorks) targets instead of a " +
-            "document's. Results are never silently truncated: the response's 'totalCount' is always the true member " +
-            "count and 'returned'/'offset'/'hasMore' say exactly what page you are looking at. Use nameFilter (a " +
-            "case-insensitive substring, e.g. 'Ray') to jump straight to a member you already suspect exists instead of " +
-            "paging through hundreds — this is how you find something like Extension.SelectByRay even when it is far " +
-            "past the default page size.")]
+            "'SketchManager', or '' for the document root itself) to see real method/property names and parameter " +
+            "counts before writing a register_operation recipe, instead of guessing. Pass featureName instead of " +
+            "targetPath to inspect a specific feature's definition object. Omit documentName to inspect application-" +
+            "level (ISldWorks) targets instead of a document's. Discovery unions every mechanism SolidWorks exposes " +
+            "(ITypeInfo plus an interop-assembly probe) rather than stopping at whichever answers first — this is what " +
+            "makes members like EditRebuild3/SaveAs3/EditUndo2/ClearSelection2 findable on a document root (targetPath " +
+            "''), which a narrower probe reports as ~175 members and misses all four of. Results are never silently " +
+            "truncated: the response's 'totalCount' is always the true member count and 'returned'/'offset'/'hasMore' " +
+            "say exactly what page you are looking at — this matters more here than most discovery tools, since a " +
+            "document root can report upwards of 900 members. Use nameFilter (a case-insensitive substring, e.g. 'Ray') " +
+            "to jump straight to a member you already suspect exists instead of paging through hundreds — this is how " +
+            "you find something like Extension.SelectByRay even when it is far past the default page size.")]
         public object DescribeComMembers(
             [Description("Which open document to inspect. Omit to inspect the SolidWorks application object itself.")]
             string? documentName = null,
@@ -318,20 +322,28 @@ namespace swmcp.server.Tools
                         };
                     }
 
-                    var members = ComTypeInspector.DescribeMembers(resolved.Value);
-                    var discoveredVia = "ITypeInfo";
-                    if (members.Count == 0)
-                    {
-                        // Deliberately unfiltered (unlike ModelInspector.DescribeFeatureDefinition's
-                        // *FeatureData* filter) — B4: filtering here is exactly what hid
-                        // Extension.SelectByRay from discovery during the UAT. Paging
-                        // (below) is how this stays usable instead of truncation.
-                        members = ComTypeInspector.DescribeMembersViaInterop(resolved.Value);
-                        discoveredVia = "interop-assembly probe";
-                    }
-
+                    // Gap #3 (UAT re-verdict): DescribeMembers-then-fallback-to-
+                    // DescribeMembersViaInterop used to report a document root's
+                    // ITypeInfo (~175 members via IProvideClassInfo) and stop
+                    // there — the either/or fallback only kicks in when
+                    // DescribeMembers finds NOTHING, but a document root finds
+                    // plenty via ITypeInfo, just not everything. That default
+                    // interface omits IModelDoc2 members like EditRebuild3,
+                    // SaveAs3, EditUndo2, ClearSelection2 — the members behind
+                    // four of this server's own seed operations — so discovery
+                    // was blind to exactly the document-level surface a client
+                    // would most want to enrich. DescribeAllMembers unions both
+                    // paths (947 members on a document root, confirmed live)
+                    // instead of picking whichever answers first. Deliberately
+                    // unfiltered on the interop side (unlike
+                    // ModelInspector.DescribeFeatureDefinition's *FeatureData*
+                    // filter) — B4: filtering here is exactly what hid
+                    // Extension.SelectByRay from discovery during the UAT.
+                    // Paging (below) is how this stays usable instead of
+                    // truncation, which matters even more at 947 members.
+                    var members = ComTypeInspector.DescribeAllMembers(resolved.Value);
                     var target = $"{rootDescription}!{(string.IsNullOrEmpty(path) ? "(root)" : path)}";
-                    return PageMembers(target, discoveredVia, members, nameFilter, offset, limit);
+                    return PageMembers(target, "ITypeInfo+interop (union)", members, nameFilter, offset, limit);
                 });
             }
             catch (SwBridgeException ex)
